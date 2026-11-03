@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Copy,
   Check,
@@ -12,6 +12,11 @@ import {
   AlertCircle,
   ExternalLink,
   Loader2,
+  Cloud,
+  Globe,
+  Unplug,
+  Zap,
+  Wifi,
 } from 'lucide-react';
 import { ToolExecutionLog } from '../types.js';
 
@@ -30,6 +35,11 @@ export const ProtocolInspector: React.FC<ProtocolInspectorProps> = ({
   const [pingLoading, setPingLoading] = useState(false);
   const [pingResult, setPingResult] = useState<any>(null);
   const [selectedLog, setSelectedLog] = useState<ToolExecutionLog | null>(null);
+
+  // Xiaozhi Cloud Bridge (wss://api.xiaozhi.me/mcp/?token=...)
+  const [cloudWsUrl, setCloudWsUrl] = useState('');
+  const [cloudStatus, setCloudStatus] = useState<any>({ status: 'disconnected' });
+  const [cloudLoading, setCloudLoading] = useState(false);
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
 
@@ -105,6 +115,53 @@ mcp_servers:
     }
   };
 
+  const fetchCloudStatus = async () => {
+    try {
+      const res = await fetch('/api/xiaozhi/cloud-bridge');
+      const data = await res.json();
+      setCloudStatus(data);
+      if (data.url && !cloudWsUrl) {
+        setCloudWsUrl(data.url);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch cloud bridge status:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchCloudStatus();
+    const interval = setInterval(fetchCloudStatus, 3500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleConnectCloud = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!cloudWsUrl.trim()) return;
+    setCloudLoading(true);
+    try {
+      const res = await fetch('/api/xiaozhi/cloud-bridge/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cloudWsUrl.trim() }),
+      });
+      const data = await res.json();
+      setCloudStatus(data);
+    } finally {
+      setCloudLoading(false);
+    }
+  };
+
+  const handleDisconnectCloud = async () => {
+    setCloudLoading(true);
+    try {
+      const res = await fetch('/api/xiaozhi/cloud-bridge/disconnect', { method: 'POST' });
+      const data = await res.json();
+      setCloudStatus(data);
+    } finally {
+      setCloudLoading(false);
+    }
+  };
+
   const exportLogsJson = () => {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(logs, null, 2));
     const downloadAnchor = document.createElement('a');
@@ -115,9 +172,142 @@ mcp_servers:
     downloadAnchor.remove();
   };
 
+  const isConnected = cloudStatus.status === 'connected';
+  const isConnecting = cloudStatus.status === 'connecting' || cloudLoading;
+
   return (
     <div className="space-y-6">
-      {/* Top Banner: Protocol status & Ping Test */}
+      {/* Xiaozhi Official Cloud Gateway Bridge Card */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+              <Cloud className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">
+                Xiaozhi Official Cloud Bridge (<code className="text-cyan-400 font-mono text-xs">api.xiaozhi.me</code>)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Connect your custom MCP tools directly to Xiaozhi's outbound WebSocket endpoint
+              </p>
+            </div>
+          </div>
+
+          {/* Connection Status Tag */}
+          <div className="flex items-center gap-2">
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Connected & Active</span>
+              </span>
+            ) : isConnecting ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Connecting...</span>
+              </span>
+            ) : cloudStatus.status === 'error' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>Connection Error</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700/60">
+                <span>Disconnected</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* WebSocket URL Input & Connect Action */}
+        <form onSubmit={handleConnectCloud} className="space-y-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={cloudWsUrl}
+                onChange={(e) => setCloudWsUrl(e.target.value)}
+                placeholder="wss://api.xiaozhi.me/mcp/?token=ey..."
+                disabled={isConnected || isConnecting}
+                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-400 disabled:opacity-60"
+              />
+            </div>
+
+            {isConnected ? (
+              <button
+                type="button"
+                onClick={handleDisconnectCloud}
+                disabled={cloudLoading}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg transition-colors whitespace-nowrap"
+              >
+                <Unplug className="w-3.5 h-3.5" />
+                <span>Disconnect</span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isConnecting || !cloudWsUrl.trim()}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-950 bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 rounded-lg transition-all whitespace-nowrap shadow-sm"
+              >
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Connecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3.5 h-3.5 fill-current" />
+                    <span>Connect to Xiaozhi Cloud</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* Cloud Bridge Telemetry & Error details */}
+          {cloudStatus.lastError && (
+            <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-300 flex items-center gap-2 font-mono">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{cloudStatus.lastError}</span>
+            </div>
+          )}
+
+          {isConnected && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-center font-mono text-xs">
+              <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Exposed Tools</span>
+                <span className="text-amber-400 font-semibold tabular-nums">
+                  {cloudStatus.activeToolsCount} active
+                </span>
+              </div>
+              <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Messages Sent</span>
+                <span className="text-slate-200 tabular-nums">
+                  {cloudStatus.messagesSent}
+                </span>
+              </div>
+              <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Messages Recv</span>
+                <span className="text-slate-200 tabular-nums">
+                  {cloudStatus.messagesReceived}
+                </span>
+              </div>
+              <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Heartbeat Ping</span>
+                <span className="text-emerald-400 tabular-nums">
+                  {cloudStatus.lastPingMs ? `${cloudStatus.lastPingMs}ms` : 'Nominal'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="text-[11px] text-slate-500 pt-1">
+            <span>Tip: You can also configure this in <code className="text-slate-400">.env</code> or Docker via <code className="text-cyan-400 font-mono">XIAOZHI_MCP_WS_URL="wss://api.xiaozhi.me/mcp/?token=..."</code> to connect automatically on startup.</span>
+          </div>
+        </form>
+      </div>
+
+      {/* Local Server Banner: Protocol status & Ping Test */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">

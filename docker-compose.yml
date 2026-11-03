@@ -12,6 +12,7 @@ services:
       - NODE_ENV=production
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - APP_URL=${APP_URL:-http://localhost:3000}
+      - XIAOZHI_MCP_WS_URL=${XIAOZHI_MCP_WS_URL:-}
     env_file:
       - path: .env
         required: false

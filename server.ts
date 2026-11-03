@@ -6,6 +6,7 @@ import { spawn } from 'child_process';
 import { pluginRegistry } from './server/pluginRegistry.js';
 import { mcpServerManager } from './server/mcpServer.js';
 import { simulateXiaozhiInteraction } from './server/geminiService.js';
+import { xiaozhiCloudBridge } from './server/xiaozhiCloudBridge.js';
 
 dotenv.config();
 
@@ -181,6 +182,7 @@ app.post('/api/plugins', (req: Request, res: Response) => {
 
   pluginRegistry.upsertTool(tool);
   mcpServerManager.broadcastToolListChanged();
+  xiaozhiCloudBridge.notifyToolListChanged();
 
   res.json({ success: true, tool });
 });
@@ -190,6 +192,7 @@ app.post('/api/plugins/:name/toggle', (req: Request, res: Response) => {
   const toolName = req.params.name;
   const isEnabled = pluginRegistry.toggleTool(toolName);
   mcpServerManager.broadcastToolListChanged();
+  xiaozhiCloudBridge.notifyToolListChanged();
   res.json({ success: true, toolName, enabled: isEnabled });
 });
 
@@ -201,7 +204,27 @@ app.delete('/api/plugins/:name', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Cannot delete default tool or tool not found' });
   }
   mcpServerManager.broadcastToolListChanged();
+  xiaozhiCloudBridge.notifyToolListChanged();
   res.json({ success: true, toolName });
+});
+
+// Xiaozhi Cloud Bridge (wss://api.xiaozhi.me/mcp/?token=...)
+app.get('/api/xiaozhi/cloud-bridge', (_req: Request, res: Response) => {
+  res.json(xiaozhiCloudBridge.getStatus());
+});
+
+app.post('/api/xiaozhi/cloud-bridge/connect', (req: Request, res: Response) => {
+  const { url } = req.body;
+  if (!url) {
+    return res.status(400).json({ error: 'WebSocket entrypoint URL is required' });
+  }
+  xiaozhiCloudBridge.connect(url);
+  res.json(xiaozhiCloudBridge.getStatus());
+});
+
+app.post('/api/xiaozhi/cloud-bridge/disconnect', (_req: Request, res: Response) => {
+  xiaozhiCloudBridge.disconnect();
+  res.json(xiaozhiCloudBridge.getStatus());
 });
 
 // Direct test execution of a tool

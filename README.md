@@ -193,9 +193,36 @@ docker compose -f docker-compose.dev.yml up
 
 ## Xiaozhi ESP32-S3 Configuration Guide
 
+### 0. Official Xiaozhi Cloud Bridge (`api.xiaozhi.me`) - Outbound WebSocket (Recommended)
+
+If you received a tokenized entrypoint from the Xiaozhi platform (e.g. `wss://api.xiaozhi.me/mcp/?token=ey...`), your local MCP Center connects **outward** to Xiaozhi's cloud gateway. This avoids having to open ports or configure dynamic DNS on your home router.
+
+#### Method A: Direct in the Web UI
+1. Open the MCP Center in your browser (`http://localhost:3000`).
+2. Go to the **Protocol & Logs** tab.
+3. In the **Xiaozhi Official Cloud Bridge** card, paste your `wss://api.xiaozhi.me/mcp/?token=ey...` entry point.
+4. Click **"Connect to Xiaozhi Cloud"**. The bridge will establish a persistent connection with keepalive heartbeats and stream tool definitions to your bot.
+
+#### Method B: In Docker or `.env` File (Automatic on Startup)
+Add to your `.env` file:
+```ini
+XIAOZHI_MCP_WS_URL="wss://api.xiaozhi.me/mcp/?token=ey..."
+```
+Then restart your container:
+```bash
+docker compose up -d
+```
+Or with `docker run`:
+```bash
+docker run -d -p 3000:3000 \
+  -e XIAOZHI_MCP_WS_URL="wss://api.xiaozhi.me/mcp/?token=ey..." \
+  --restart unless-stopped \
+  xiaozhi-mcp-center:latest
+```
+
 ### 1. Direct ESP32-S3 Firmware Configuration (`config.json`)
 
-Upload this configuration to your Xiaozhi ESP32-S3 SPIFFS/LittleFS storage under `/config.json`:
+If running direct local firmware connection without the cloud gateway, upload this configuration to your Xiaozhi ESP32-S3 SPIFFS/LittleFS storage under `/config.json`:
 
 ```json
 {

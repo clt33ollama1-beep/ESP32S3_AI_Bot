@@ -738,36 +738,90 @@ export class PluginRegistry {
           }
 
           const json = await res.json();
-          let dataList: any[] = json.data || [];
+          const generatedTime = json.generated_timestamp ? new Date(json.generated_timestamp).getTime() : Date.now();
+          const rawList: any[] = json.data || [];
+          const upcoming: any[] = [];
 
-          // If querying by stop-eta, filter by route
           if (stopId) {
-            dataList = dataList.filter((item) => item.route?.toUpperCase() === route);
-          } else if (direction) {
-            dataList = dataList.filter((item) => item.dir === direction);
+            // Specific stop query
+            const stopItems = rawList
+              .filter((item) => item.route?.toUpperCase() === route && item.eta && item.eta.trim() !== '')
+              .sort((a, b) => (a.eta_seq || 1) - (b.eta_seq || 1));
+
+            for (const item of stopItems) {
+              const etaMs = new Date(item.eta).getTime();
+              const diffSec = Math.round((etaMs - generatedTime) / 1000);
+              const diffMin = Math.round(diffSec / 60);
+
+              if (diffSec < -60) continue; // Skip departures past 1 minute ago
+
+              upcoming.push({
+                route: item.route,
+                destinationTc: item.dest_tc || item.dest_en,
+                destinationEn: item.dest_en,
+                direction: item.dir === 'O' ? 'Outbound' : 'Inbound',
+                seq: item.seq,
+                etaSeq: item.eta_seq,
+                etaTime: new Date(item.eta).toLocaleTimeString('en-GB', {
+                  timeZone: 'Asia/Hong_Kong',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+                }),
+                minutesRemaining: Math.max(0, diffMin),
+                countdownText: diffMin <= 0 ? 'Arriving now' : `${diffMin} min`,
+                remark: item.rmk_tc || item.rmk_en || 'Scheduled Bus',
+                company: item.co,
+              });
+            }
+          } else {
+            // Route query across directions (O and/or I)
+            const dirsToQuery = direction ? [direction] : ['O', 'I'];
+
+            for (const d of dirsToQuery) {
+              const dirItems = rawList.filter(
+                (item) => item.dir === d && item.eta && item.eta.trim() !== ''
+              );
+              if (!dirItems.length) continue;
+
+              // For route query without specific stop, group by terminus/origin (seq 1)
+              let targetStops = dirItems.filter((i) => i.seq === 1);
+              if (!targetStops.length) {
+                const minSeq = Math.min(...dirItems.map((i) => i.seq));
+                targetStops = dirItems.filter((i) => i.seq === minSeq);
+              }
+
+              // Sort by eta_seq ascending (1st, 2nd, 3rd upcoming bus)
+              targetStops.sort((a, b) => (a.eta_seq || 1) - (b.eta_seq || 1));
+
+              for (const item of targetStops) {
+                const etaMs = new Date(item.eta).getTime();
+                const diffSec = Math.round((etaMs - generatedTime) / 1000);
+                const diffMin = Math.round(diffSec / 60);
+
+                if (diffSec < -60) continue; // Skip departed buses
+
+                upcoming.push({
+                  route: item.route,
+                  destinationTc: item.dest_tc || item.dest_en,
+                  destinationEn: item.dest_en,
+                  direction: item.dir === 'O' ? 'Outbound' : 'Inbound',
+                  seq: item.seq,
+                  etaSeq: item.eta_seq,
+                  etaTime: new Date(item.eta).toLocaleTimeString('en-GB', {
+                    timeZone: 'Asia/Hong_Kong',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                  }),
+                  minutesRemaining: Math.max(0, diffMin),
+                  countdownText: diffMin <= 0 ? 'Arriving now' : `${diffMin} min`,
+                  remark: item.rmk_tc || item.rmk_en || 'Scheduled Bus',
+                  company: item.co,
+                });
+              }
+            }
           }
-
-          // Filter only items with active ETA timestamps
-          const activeEtas = dataList.filter((item) => item.eta && item.eta.trim() !== '');
-
-          // Sort by ETA timestamp ascending
-          activeEtas.sort((a, b) => new Date(a.eta).getTime() - new Date(b.eta).getTime());
-
-          const now = Date.now();
-          const upcoming = activeEtas.slice(0, 4).map((item) => {
-            const etaMs = new Date(item.eta).getTime();
-            const diffMin = Math.max(0, Math.round((etaMs - now) / 60000));
-            return {
-              route: item.route,
-              destinationTc: item.dest_tc || item.dest_en,
-              destinationEn: item.dest_en,
-              direction: item.dir === 'O' ? 'Outbound' : 'Inbound',
-              etaTime: new Date(item.eta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              minutesRemaining: diffMin,
-              remark: item.rmk_tc || item.rmk_en || 'Scheduled Bus',
-              company: item.co,
-            };
-          });
 
           if (upcoming.length === 0) {
             return {
@@ -778,8 +832,22 @@ export class PluginRegistry {
           }
 
           const next = upcoming[0];
-          const second = upcoming[1];
-          const summary = `KMB ${route} to ${next.destinationTc} (${next.destinationEn}): Next bus in ${next.minutesRemaining} min (${next.etaTime})${second ? `, then ${second.minutesRemaining} min` : ''}.`;
+          const subsequent = upcoming.filter(
+            (u) => u.destinationTc === next.destinationTc && u.etaSeq > next.etaSeq
+          );
+          const nextSameDir = subsequent[0];
+
+          let summary = `KMB ${route} to ${next.destinationTc} (${next.destinationEn}): Next bus ${next.countdownText} (${next.etaTime})`;
+          if (nextSameDir) {
+            summary += `, followed by ${nextSameDir.countdownText} (${nextSameDir.etaTime})`;
+          }
+
+          const opposite = upcoming.find((u) => u.destinationTc !== next.destinationTc);
+          if (opposite && !direction) {
+            summary += `. Towards ${opposite.destinationTc}: ${opposite.countdownText} (${opposite.etaTime}).`;
+          } else {
+            summary += '.';
+          }
 
           return {
             status: 'success',

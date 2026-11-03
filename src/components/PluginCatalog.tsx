@@ -11,6 +11,8 @@ import {
   Trash2,
   CheckCircle2,
   Plus,
+  Bus,
+  Loader2,
 } from 'lucide-react';
 import { McpToolDefinition } from '../types.js';
 
@@ -31,6 +33,56 @@ export const PluginCatalog: React.FC<PluginCatalogProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Hong Kong KMB Bus Live ETA Widget state
+  const [busRoute, setBusRoute] = useState('1A');
+  const [busResult, setBusResult] = useState<any>(null);
+  const [busLoading, setBusLoading] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
+
+  const handleQueryBusEta = async (routeOverride?: string) => {
+    const route = (routeOverride || busRoute).trim().toUpperCase();
+    if (!route) return;
+    setBusLoading(true);
+    try {
+      const res = await fetch('/api/plugins/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolName: 'kmb_bus_get_eta',
+          args: { route },
+          caller: 'simulator',
+        }),
+      });
+      const data = await res.json();
+      setBusResult(data.result);
+    } catch (err: any) {
+      setBusResult({ status: 'error', message: err.message || 'Failed to fetch ETA' });
+    } finally {
+      setBusLoading(false);
+    }
+  };
+
+  const handleBroadcastBusToXiaozhi = async () => {
+    if (!busResult?.summary) return;
+    setBroadcasting(true);
+    try {
+      await fetch('/api/plugins/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolName: 'speech_broadcast_alert',
+          args: {
+            message: busResult.summary,
+            emotion: 'happy',
+          },
+          caller: 'simulator',
+        }),
+      });
+    } finally {
+      setBroadcasting(false);
+    }
+  };
 
   const categories = [
     { id: 'all', label: 'All Plugins', icon: Sliders },
@@ -112,6 +164,150 @@ export const PluginCatalog: React.FC<PluginCatalogProps> = ({
             </button>
           );
         })}
+      </div>
+
+      {/* Interactive KMB Bus Live ETA Widget */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-lg space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+              <Bus className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">
+                Hong Kong KMB & LWB Live Bus ETA (Open Data <code className="text-rose-400 font-mono text-xs">hk-td-tis_21-etakmb</code>)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Real-time arrival countdowns powered by data.gov.hk & data.etabus.gov.hk
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono text-slate-500 self-start sm:self-auto">
+            API: data.etabus.gov.hk/v1
+          </span>
+        </div>
+
+        {/* Bus Query Form */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={busRoute}
+                onChange={(e) => setBusRoute(e.target.value)}
+                placeholder="Enter KMB route number (e.g. 1A, 960, 68X, 238X, 104, B1)"
+                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-rose-400 uppercase"
+              />
+            </div>
+            <button
+              onClick={() => handleQueryBusEta()}
+              disabled={busLoading || !busRoute.trim()}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-50 rounded-lg transition-all whitespace-nowrap shadow-sm"
+            >
+              {busLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+              <span>Query ETA</span>
+            </button>
+          </div>
+
+          {/* Quick Route Suggestions */}
+          <div className="flex items-center gap-1.5 overflow-x-auto text-[11px] font-mono">
+            <span className="text-slate-500">Popular:</span>
+            {['1A', '960', '68X', '238X', '104', '260X', 'B1', '3M'].map((rt) => (
+              <button
+                key={rt}
+                onClick={() => {
+                  setBusRoute(rt);
+                  handleQueryBusEta(rt);
+                }}
+                className={`px-2 py-0.5 rounded border transition-colors ${
+                  busRoute === rt
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {rt}
+              </button>
+            ))}
+          </div>
+
+          {/* Bus ETA Results Display */}
+          {busResult && (
+            <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
+              {busResult.status === 'success' && busResult.nextBus ? (
+                <div className="space-y-3">
+                  <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded font-mono font-bold text-xs">
+                          KMB {busResult.route}
+                        </span>
+                        <span className="text-sm font-semibold text-white">
+                          To {busResult.nextBus.destinationTc}
+                        </span>
+                        <span className="text-xs text-slate-400 font-mono">
+                          ({busResult.nextBus.destinationEn})
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Status: {busResult.nextBus.remark} · Direction: {busResult.nextBus.direction}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-4 shrink-0">
+                      <div className="text-right font-mono">
+                        <div className="text-2xl font-bold text-emerald-400 tabular-nums">
+                          {busResult.nextBus.minutesRemaining} <span className="text-sm font-normal text-slate-400">min</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 tabular-nums">
+                          ETA {busResult.nextBus.etaTime}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleBroadcastBusToXiaozhi}
+                        disabled={broadcasting}
+                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
+                        title="Xiaozhi bot will speak this arrival countdown aloud"
+                      >
+                        {broadcasting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Radio className="w-3.5 h-3.5" />}
+                        <span>Broadcast to Bot</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Subsequent Buses Strip */}
+                  {busResult.upcomingDepartures && busResult.upcomingDepartures.length > 1 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {busResult.upcomingDepartures.slice(1, 4).map((bus: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="p-2.5 bg-slate-950/60 rounded-lg border border-slate-800/80 font-mono text-xs flex items-center justify-between"
+                        >
+                          <div className="truncate pr-2">
+                            <span className="text-slate-400 block text-[10px]">Bus #{idx + 2}</span>
+                            <span className="text-slate-200 truncate">{bus.destinationTc}</span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-emerald-400 font-semibold tabular-nums">
+                              {bus.minutesRemaining} min
+                            </span>
+                            <span className="text-[10px] text-slate-500 block tabular-nums">
+                              {bus.etaTime}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs text-slate-400">
+                  {busResult.message || 'No active departures available for this route right now.'}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Tools Grid */}

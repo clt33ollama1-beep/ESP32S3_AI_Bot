@@ -249,6 +249,38 @@ export class PluginRegistry {
         },
       },
       {
+        name: 'kmb_bus_get_eta',
+        description: 'Query real-time bus arrival time (ETA) for Kowloon Motor Bus (KMB) and Long Win Bus (LWB) in Hong Kong via official data.gov.hk open API. Returns next arriving buses with countdown minutes, destination, and status remarks.',
+        category: 'web',
+        enabled: true,
+        isCustom: false,
+        pluginId: 'hk_transport',
+        handlerType: 'mock',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            route: {
+              type: 'string',
+              description: 'KMB bus route number (e.g. 1A, 960, 68X, 238X, 104, B1, 260X, 3M, 30X)',
+            },
+            direction: {
+              type: 'string',
+              description: 'Direction bound: "O" for Outbound, "I" for Inbound. If omitted, returns active departures.',
+              enum: ['O', 'I'],
+            },
+            stop_id: {
+              type: 'string',
+              description: 'Optional 16-character bus stop ID (e.g. AA97FFC49AE957A5) to filter ETAs for a specific stop',
+            },
+            service_type: {
+              type: 'number',
+              description: 'Service variant type (default: 1 for regular service)',
+            },
+          },
+          required: ['route'],
+        },
+      },
+      {
         name: 'media_play_station',
         description: 'Stream music, ambient white noise, or internet radio through Xiaozhi I2S speaker.',
         category: 'media',
@@ -350,6 +382,23 @@ export class PluginRegistry {
         },
         lastTriggered: new Date(Date.now() - 1000 * 60 * 140).toISOString(),
         triggerCount: 12,
+      },
+      {
+        id: 'auto-4',
+        name: 'Morning Commute KMB 1A ETA Tracker',
+        description: 'Queries Hong Kong KMB 1A bus arrival time via data.gov.hk and announces next departure on Xiaozhi',
+        enabled: true,
+        triggerType: 'schedule',
+        triggerConfig: {
+          scheduleIntervalMin: 15,
+        },
+        actionType: 'execute_tool',
+        actionConfig: {
+          toolName: 'kmb_bus_get_eta',
+          toolArguments: { route: '1A' },
+        },
+        lastTriggered: new Date(Date.now() - 1000 * 60 * 8).toISOString(),
+        triggerCount: 6,
       },
     ];
   }
@@ -664,6 +713,91 @@ export class PluginRegistry {
           emotion,
           timestamp: new Date().toISOString(),
         };
+      }
+
+      case 'kmb_bus_get_eta': {
+        const route = (args.route || '1A').trim().toUpperCase();
+        const serviceType = Number(args.service_type || 1);
+        const direction = args.direction ? String(args.direction).trim().toUpperCase() : undefined;
+        const stopId = args.stop_id ? String(args.stop_id).trim().toUpperCase() : undefined;
+
+        try {
+          const endpoint = stopId
+            ? `https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${encodeURIComponent(stopId)}`
+            : `https://data.etabus.gov.hk/v1/transport/kmb/route-eta/${encodeURIComponent(route)}/${serviceType}`;
+
+          const res = await fetch(endpoint, {
+            headers: {
+              Accept: 'application/json',
+              'User-Agent': 'Xiaozhi-AI-MCP-Center/1.0',
+            },
+          });
+
+          if (!res.ok) {
+            throw new Error(`KMB Open Data API HTTP ${res.status}`);
+          }
+
+          const json = await res.json();
+          let dataList: any[] = json.data || [];
+
+          // If querying by stop-eta, filter by route
+          if (stopId) {
+            dataList = dataList.filter((item) => item.route?.toUpperCase() === route);
+          } else if (direction) {
+            dataList = dataList.filter((item) => item.dir === direction);
+          }
+
+          // Filter only items with active ETA timestamps
+          const activeEtas = dataList.filter((item) => item.eta && item.eta.trim() !== '');
+
+          // Sort by ETA timestamp ascending
+          activeEtas.sort((a, b) => new Date(a.eta).getTime() - new Date(b.eta).getTime());
+
+          const now = Date.now();
+          const upcoming = activeEtas.slice(0, 4).map((item) => {
+            const etaMs = new Date(item.eta).getTime();
+            const diffMin = Math.max(0, Math.round((etaMs - now) / 60000));
+            return {
+              route: item.route,
+              destinationTc: item.dest_tc || item.dest_en,
+              destinationEn: item.dest_en,
+              direction: item.dir === 'O' ? 'Outbound' : 'Inbound',
+              etaTime: new Date(item.eta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              minutesRemaining: diffMin,
+              remark: item.rmk_tc || item.rmk_en || 'Scheduled Bus',
+              company: item.co,
+            };
+          });
+
+          if (upcoming.length === 0) {
+            return {
+              status: 'no_eta',
+              route,
+              message: `No active departures found for KMB route ${route} at this moment.`,
+            };
+          }
+
+          const next = upcoming[0];
+          const second = upcoming[1];
+          const summary = `KMB ${route} to ${next.destinationTc} (${next.destinationEn}): Next bus in ${next.minutesRemaining} min (${next.etaTime})${second ? `, then ${second.minutesRemaining} min` : ''}.`;
+
+          return {
+            status: 'success',
+            provider: 'data.gov.hk / KMB Open Data (hk-td-tis_21-etakmb)',
+            route,
+            summary,
+            nextBus: next,
+            upcomingDepartures: upcoming,
+            timestamp: new Date().toISOString(),
+          };
+        } catch (err: any) {
+          return {
+            status: 'fallback',
+            route,
+            message: `Could not retrieve live ETA for KMB ${route}: ${err?.message || 'Network error'}.`,
+            sampleHint: 'Verify the route number exists in Hong Kong KMB network (e.g. 1A, 960, 68X, 238X, 104, B1).',
+          };
+        }
       }
 
       default: {

@@ -16,6 +16,7 @@ This center bridges physical ESP32-S3 hardware controls (OLED facial expressions
   - **ESP32 Hardware**: WS2812B LED ring controls (`solid`, `pulse`, `rainbow`), OLED screen pixel emotions (`happy`, `listening`, `thinking`, `speaking`, `sleep`, `shocked`), buzzer melodies, battery & Wi-Fi telemetry probe.
   - **Smart Home & IoT**: Home Assistant / MQTT device toggles, room climate & air quality monitoring.
   - **Productivity & Voice Timers**: Voice countdown timers and audio memo notebook.
+  - **Hong Kong Transit (KMB / LWB Open Data)**: Real-time Estimated Time of Arrival (ETA) for Kowloon Motor Bus & Long Win Bus via official `data.gov.hk` Open API (`hk-td-tis_21-etakmb`), returning live arrival countdowns, destination in Chinese & English, and scheduled trip status.
   - **Web Intelligence**: Search synthesis and localized weather forecasting.
   - **Audio & Media**: Lofi radio streaming and priority voice announcements.
 - **Visual Plugin Builder**:

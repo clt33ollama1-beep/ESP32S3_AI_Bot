@@ -247,6 +247,22 @@ async function localIntentExecution(prompt: string): Promise<ChatSimulationResul
     };
   }
 
+  // 6.5. KMB Bus ETA Check (Hong Kong Open Data)
+  if (p.includes('bus') || p.includes('kmb') || p.includes('九巴') || p.includes('巴士') || p.includes('eta') || p.includes('到站') || p.includes('arrive')) {
+    const routeMatch = prompt.match(/\b([0-9]{1,3}[A-Za-z]{0,2}|B[0-9]|N[0-9]{1,3})\b/);
+    const route = routeMatch ? routeMatch[1].toUpperCase() : '1A';
+
+    const { result } = await pluginRegistry.executeTool('kmb_bus_get_eta', { route }, 'simulator');
+    toolCallsExecuted.push({ name: 'kmb_bus_get_eta', arguments: { route }, result });
+
+    const spokenText = result?.summary || result?.message || `Checked KMB route ${route}.`;
+    return {
+      replyText: spokenText,
+      expression: 'happy',
+      toolCallsExecuted,
+    };
+  }
+
   // 7. Smart home
   if (p.includes('turn on') || p.includes('turn off') || p.includes('fan') || p.includes('lamp') || p.includes('socket') || p.includes('switch')) {
     const state = p.includes('off') ? 'off' : 'on';

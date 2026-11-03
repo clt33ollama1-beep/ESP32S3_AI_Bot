@@ -53,11 +53,12 @@ export const XiaozhiSimulator: React.FC<XiaozhiSimulatorProps> = ({
   const [isSpeakingAudio, setIsSpeakingAudio] = useState(false);
 
   const samplePrompts = [
+    'Check KMB 1A bus arrival time',
+    'When is the next 960 bus arriving?',
     'Set LED ring to cyan pulse',
     'Show a happy face on OLED',
     'Check battery telemetry',
     'Set a 15-minute tea timer',
-    'Check Tokyo weather forecast',
     'Turn on living room light',
   ];
 

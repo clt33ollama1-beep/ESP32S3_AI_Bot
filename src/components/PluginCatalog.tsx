@@ -35,22 +35,39 @@ export const PluginCatalog: React.FC<PluginCatalogProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   // Hong Kong KMB Bus Live ETA Widget state
-  const [busRoute, setBusRoute] = useState('1A');
+  const [busRoute, setBusRoute] = useState('71A');
+  const [busOrigin, setBusOrigin] = useState('Tai Po Market MTR');
+  const [busDestination, setBusDestination] = useState('Tai Po Center');
+  const [busLimit, setBusLimit] = useState(2);
   const [busResult, setBusResult] = useState<any>(null);
   const [busLoading, setBusLoading] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
 
-  const handleQueryBusEta = async (routeOverride?: string) => {
-    const route = (routeOverride || busRoute).trim().toUpperCase();
+  const handleQueryBusEta = async (
+    routeOverride?: string,
+    originOverride?: string,
+    destOverride?: string,
+    limitOverride?: number
+  ) => {
+    const route = (routeOverride !== undefined ? routeOverride : busRoute).trim().toUpperCase();
+    const origin = (originOverride !== undefined ? originOverride : busOrigin).trim();
+    const destination = (destOverride !== undefined ? destOverride : busDestination).trim();
+    const limit = limitOverride !== undefined ? limitOverride : busLimit;
+
     if (!route) return;
     setBusLoading(true);
     try {
+      const args: Record<string, any> = { route };
+      if (origin) args.origin = origin;
+      if (destination) args.destination = destination;
+      if (limit) args.limit = limit;
+
       const res = await fetch('/api/plugins/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           toolName: 'kmb_bus_get_eta',
-          args: { route },
+          args,
           caller: 'simulator',
         }),
       });
@@ -189,45 +206,100 @@ export const PluginCatalog: React.FC<PluginCatalogProps> = ({
 
         {/* Bus Query Form */}
         <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            <div className="relative flex-1">
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+            <div className="sm:col-span-3">
+              <label className="block text-[10px] font-mono text-slate-400 mb-1">Route</label>
               <input
                 type="text"
                 value={busRoute}
                 onChange={(e) => setBusRoute(e.target.value)}
-                placeholder="Enter KMB route number (e.g. 1A, 960, 68X, 238X, 104, B1)"
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-rose-400 uppercase"
+                placeholder="Route (e.g. 71A, 1A, 960)"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-rose-400 uppercase"
               />
             </div>
-            <button
-              onClick={() => handleQueryBusEta()}
-              disabled={busLoading || !busRoute.trim()}
-              className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-50 rounded-lg transition-all whitespace-nowrap shadow-sm"
-            >
-              {busLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-              <span>Query ETA</span>
-            </button>
+            <div className="sm:col-span-4">
+              <label className="block text-[10px] font-mono text-slate-400 mb-1">Boarding Stop / Origin (Optional)</label>
+              <input
+                type="text"
+                value={busOrigin}
+                onChange={(e) => setBusOrigin(e.target.value)}
+                placeholder="e.g. Tai Po Market MTR / 大埔墟站"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-rose-400"
+              />
+            </div>
+            <div className="sm:col-span-3">
+              <label className="block text-[10px] font-mono text-slate-400 mb-1">Destination (Optional)</label>
+              <input
+                type="text"
+                value={busDestination}
+                onChange={(e) => setBusDestination(e.target.value)}
+                placeholder="e.g. Tai Po Center / 大埔中心"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-lg text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-rose-400"
+              />
+            </div>
+            <div className="sm:col-span-2 flex flex-col justify-end">
+              <button
+                onClick={() => handleQueryBusEta()}
+                disabled={busLoading || !busRoute.trim()}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-50 rounded-lg transition-all whitespace-nowrap shadow-sm"
+              >
+                {busLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                <span>Query ETA</span>
+              </button>
+            </div>
           </div>
 
-          {/* Quick Route Suggestions */}
-          <div className="flex items-center gap-1.5 overflow-x-auto text-[11px] font-mono">
-            <span className="text-slate-500">Popular:</span>
-            {['1A', '960', '68X', '238X', '104', '260X', 'B1', '3M'].map((rt) => (
-              <button
-                key={rt}
-                onClick={() => {
-                  setBusRoute(rt);
-                  handleQueryBusEta(rt);
-                }}
-                className={`px-2 py-0.5 rounded border transition-colors ${
-                  busRoute === rt
-                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {rt}
-              </button>
-            ))}
+          {/* Quick Route & Landmark Scenarios */}
+          <div className="flex items-center gap-1.5 overflow-x-auto text-[11px] font-mono pt-1">
+            <span className="text-slate-500 shrink-0">Scenarios:</span>
+            <button
+              onClick={() => {
+                setBusRoute('71A');
+                setBusOrigin('Tai Po Market MTR');
+                setBusDestination('Tai Po Center');
+                setBusLimit(2);
+                handleQueryBusEta('71A', 'Tai Po Market MTR', 'Tai Po Center', 2);
+              }}
+              className="px-2.5 py-1 rounded border border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition-colors whitespace-nowrap shrink-0"
+            >
+              71A: Tai Po Market MTR → Tai Po Center (Next 2)
+            </button>
+            <button
+              onClick={() => {
+                setBusRoute('1A');
+                setBusOrigin('Star Ferry');
+                setBusDestination('Sau Mau Ping');
+                setBusLimit(3);
+                handleQueryBusEta('1A', 'Star Ferry', 'Sau Mau Ping', 3);
+              }}
+              className="px-2.5 py-1 rounded border border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap shrink-0"
+            >
+              1A: Star Ferry → Sau Mau Ping
+            </button>
+            <button
+              onClick={() => {
+                setBusRoute('960');
+                setBusOrigin('Kin Sang');
+                setBusDestination('Exhibition Centre');
+                setBusLimit(3);
+                handleQueryBusEta('960', 'Kin Sang', 'Exhibition Centre', 3);
+              }}
+              className="px-2.5 py-1 rounded border border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap shrink-0"
+            >
+              960: Tuen Mun → Wan Chai
+            </button>
+            <button
+              onClick={() => {
+                setBusRoute('B1');
+                setBusOrigin('');
+                setBusDestination('');
+                setBusLimit(3);
+                handleQueryBusEta('B1', '', '', 3);
+              }}
+              className="px-2 py-1 rounded border border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap shrink-0"
+            >
+              B1 (Border)
+            </button>
           </div>
 
           {/* Bus ETA Results Display */}
@@ -241,15 +313,22 @@ export const PluginCatalog: React.FC<PluginCatalogProps> = ({
                         <span className="px-2 py-0.5 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded font-mono font-bold text-xs">
                           KMB {busResult.route}
                         </span>
+                        {busResult.origin && (
+                          <span className="text-xs px-2 py-0.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded font-mono">
+                            From: {busResult.origin}
+                          </span>
+                        )}
                         <span className="text-sm font-semibold text-white">
-                          To {busResult.nextBus.destinationTc}
+                          To {busResult.destination || busResult.nextBus.destinationTc}
                         </span>
-                        <span className="text-xs text-slate-400 font-mono">
-                          ({busResult.nextBus.destinationEn})
-                        </span>
+                        {busResult.destinationEn && (
+                          <span className="text-xs text-slate-400 font-mono">
+                            ({busResult.destinationEn})
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-400 mt-1">
-                        Status: <span className="text-slate-300">{busResult.nextBus.remark}</span> · Direction: <span className="text-slate-300">{busResult.nextBus.direction}</span>
+                        Status: <span className="text-slate-300">{busResult.nextBus.remark}</span> · Direction: <span className="text-slate-300">{busResult.direction || busResult.nextBus.direction}</span>
                       </p>
                       {busResult.summary && (
                         <p className="text-[11px] text-amber-300/80 mt-1.5 font-mono italic">

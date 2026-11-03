@@ -1,4 +1,5 @@
 import { McpToolDefinition, ToolExecutionLog, XiaozhiDeviceState, AutomationRule } from './types.js';
+import { resolveRouteStop } from './kmbService.js';
 
 export class PluginRegistry {
   private tools: Map<string, McpToolDefinition> = new Map();
@@ -263,9 +264,21 @@ export class PluginRegistry {
               type: 'string',
               description: 'KMB bus route number (e.g. 1A, 960, 68X, 238X, 104, B1, 260X, 3M, 30X)',
             },
+            origin: {
+              type: 'string',
+              description: 'Boarding stop name or landmark e.g. "Tai Po Market MTR", "Tai Po Market Station", "大埔墟站"',
+            },
+            destination: {
+              type: 'string',
+              description: 'Destination stop or landmark e.g. "Tai Po Center", "大埔中心", "Fu Heng"',
+            },
+            limit: {
+              type: 'number',
+              description: 'Number of upcoming arrival times to return (e.g. 2 for next 2 ETAs, default: 3)',
+            },
             direction: {
               type: 'string',
-              description: 'Direction bound: "O" for Outbound, "I" for Inbound. If omitted, returns active departures.',
+              description: 'Direction bound: "O" for Outbound, "I" for Inbound. If omitted, automatically resolved.',
               enum: ['O', 'I'],
             },
             stop_id: {
@@ -718,10 +731,22 @@ export class PluginRegistry {
       case 'kmb_bus_get_eta': {
         const route = (args.route || '1A').trim().toUpperCase();
         const serviceType = Number(args.service_type || 1);
-        const direction = args.direction ? String(args.direction).trim().toUpperCase() : undefined;
-        const stopId = args.stop_id ? String(args.stop_id).trim().toUpperCase() : undefined;
+        const origin = args.origin ? String(args.origin).trim() : (args.boarding_stop ? String(args.boarding_stop).trim() : undefined);
+        const destination = args.destination ? String(args.destination).trim() : undefined;
+        const limit = args.limit ? Math.max(1, Math.min(10, Number(args.limit))) : undefined;
+        let direction = args.direction ? String(args.direction).trim().toUpperCase() : undefined;
+        let stopId = args.stop_id ? String(args.stop_id).trim().toUpperCase() : undefined;
 
         try {
+          // If origin or destination is provided, resolve the exact boarding stop & direction
+          let matchedStop: any = null;
+          if ((origin || destination) && !stopId) {
+            matchedStop = await resolveRouteStop(route, serviceType, origin, destination);
+            if (matchedStop) {
+              direction = matchedStop.bound;
+            }
+          }
+
           const endpoint = stopId
             ? `https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${encodeURIComponent(stopId)}`
             : `https://data.etabus.gov.hk/v1/transport/kmb/route-eta/${encodeURIComponent(route)}/${serviceType}`;
@@ -740,9 +765,84 @@ export class PluginRegistry {
           const json = await res.json();
           const generatedTime = json.generated_timestamp ? new Date(json.generated_timestamp).getTime() : Date.now();
           const rawList: any[] = json.data || [];
-          const upcoming: any[] = [];
+          let upcoming: any[] = [];
 
-          if (stopId) {
+          if (matchedStop) {
+            // Filter by the matched boarding stop sequence and direction
+            const stopItems = rawList
+              .filter(
+                (item) =>
+                  item.dir === matchedStop.bound &&
+                  item.seq === matchedStop.boardingSeq &&
+                  item.eta &&
+                  item.eta.trim() !== ''
+              )
+              .sort((a, b) => (a.eta_seq || 1) - (b.eta_seq || 1));
+
+            for (const item of stopItems) {
+              const etaMs = new Date(item.eta).getTime();
+              const diffSec = Math.round((etaMs - generatedTime) / 1000);
+              const diffMin = Math.round(diffSec / 60);
+
+              if (diffSec < -60) continue; // Skip departed trips
+
+              upcoming.push({
+                route: item.route,
+                destinationTc: item.dest_tc || item.dest_en,
+                destinationEn: item.dest_en,
+                direction: item.dir === 'O' ? 'Outbound' : 'Inbound',
+                seq: item.seq,
+                etaSeq: item.eta_seq,
+                etaTime: new Date(item.eta).toLocaleTimeString('en-GB', {
+                  timeZone: 'Asia/Hong_Kong',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+                }),
+                minutesRemaining: Math.max(0, diffMin),
+                countdownText: diffMin <= 0 ? 'Arriving now' : `${diffMin} min`,
+                remark: item.rmk_tc || item.rmk_en || 'Scheduled Bus',
+                company: item.co,
+                boardingStopTc: matchedStop.boardingStop?.nameTc,
+                boardingStopEn: matchedStop.boardingStop?.nameEn,
+              });
+            }
+
+            if (limit && limit > 0) {
+              upcoming = upcoming.slice(0, limit);
+            }
+
+            if (upcoming.length === 0) {
+              return {
+                status: 'no_eta',
+                route,
+                origin: matchedStop.boardingStop?.nameTc,
+                destination: matchedStop.destinationStop?.nameTc,
+                message: `No active departures found for KMB ${route} at ${matchedStop.boardingStop?.nameTc || 'this stop'}.`,
+              };
+            }
+
+            const boardingTc = matchedStop.boardingStop?.nameTc?.replace(/\s*\([^)]*\)/, '') || '大埔墟站';
+            const destTc = matchedStop.destinationStop?.nameTc?.replace(/\s*\([^)]*\)/, '') || upcoming[0].destinationTc;
+            const arrivalsSummary = upcoming.map((u) => `${u.countdownText} (${u.etaTime})`).join(' and ');
+            const summary = `At ${boardingTc} heading towards ${destTc}: Next ${upcoming.length} KMB ${route} buses arrive in ${arrivalsSummary}.`;
+
+            return {
+              status: 'success',
+              provider: 'data.gov.hk / KMB Open Data (hk-td-tis_21-etakmb)',
+              route,
+              origin: matchedStop.boardingStop?.nameTc,
+              originEn: matchedStop.boardingStop?.nameEn,
+              destination: matchedStop.destinationStop?.nameTc || upcoming[0].destinationTc,
+              destinationEn: matchedStop.destinationStop?.nameEn || upcoming[0].destinationEn,
+              direction: matchedStop.bound === 'O' ? 'Outbound' : 'Inbound',
+              limit: limit || upcoming.length,
+              summary,
+              nextBus: upcoming[0],
+              upcomingDepartures: upcoming,
+              timestamp: new Date().toISOString(),
+            };
+          } else if (stopId) {
             // Specific stop query
             const stopItems = rawList
               .filter((item) => item.route?.toUpperCase() === route && item.eta && item.eta.trim() !== '')
@@ -773,6 +873,10 @@ export class PluginRegistry {
                 remark: item.rmk_tc || item.rmk_en || 'Scheduled Bus',
                 company: item.co,
               });
+            }
+
+            if (limit && limit > 0) {
+              upcoming = upcoming.slice(0, limit);
             }
           } else {
             // Route query across directions (O and/or I)
@@ -821,6 +925,10 @@ export class PluginRegistry {
                 });
               }
             }
+
+            if (limit && limit > 0) {
+              upcoming = upcoming.slice(0, limit);
+            }
           }
 
           if (upcoming.length === 0) {
@@ -863,7 +971,7 @@ export class PluginRegistry {
             status: 'fallback',
             route,
             message: `Could not retrieve live ETA for KMB ${route}: ${err?.message || 'Network error'}.`,
-            sampleHint: 'Verify the route number exists in Hong Kong KMB network (e.g. 1A, 960, 68X, 238X, 104, B1).',
+            sampleHint: 'Verify the route number exists in Hong Kong KMB network (e.g. 71A, 1A, 960, 68X, 238X, 104, B1).',
           };
         }
       }

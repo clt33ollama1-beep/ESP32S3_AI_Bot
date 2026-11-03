@@ -214,8 +214,86 @@ async function localIntentExecution(prompt: string): Promise<ChatSimulationResul
     };
   }
 
-  // 5. Timer
-  if (p.includes('timer') || p.includes('pomodoro') || p.includes('minute') || p.includes('倒计时')) {
+  // 5. KMB Bus ETA Check (Hong Kong Open Data)
+  if (
+    p.includes('bus') ||
+    p.includes('kmb') ||
+    p.includes('九巴') ||
+    p.includes('巴士') ||
+    p.includes('eta') ||
+    p.includes('到站') ||
+    p.includes('arrive') ||
+    (p.includes('next') && /\b[0-9]{1,3}[A-Za-z]{0,2}\b/i.test(prompt)) ||
+    p.includes('taipo') ||
+    p.includes('大埔')
+  ) {
+    // 1. Extract Route (prioritizing explicit markers like "for 71A", "route 71A", or alphanumeric bus codes like 71A, 960, 68X)
+    let route = '71A';
+    const explicitRouteMatch = prompt.match(/(?:route|bus|for|號|線)\s*([0-9]{1,3}[A-Za-z]{0,2}|B[0-9]|N[0-9]{1,3})/i);
+    if (explicitRouteMatch) {
+      route = explicitRouteMatch[1].toUpperCase();
+    } else {
+      const alphaNumMatch = prompt.match(/\b([0-9]{1,3}[A-Za-z]{1,2}|B[0-9]|N[0-9]{1,3}|[0-9]{2,3})\b/i);
+      if (alphaNumMatch) {
+        route = alphaNumMatch[1].toUpperCase();
+      } else {
+        const generalMatch = prompt.match(/\b([0-9]{1,3}[A-Za-z]{0,2})\b/);
+        if (generalMatch) route = generalMatch[1].toUpperCase();
+      }
+    }
+
+    // 2. Extract Limit (e.g. "next 2 eta", "下2班車")
+    let limit = 3;
+    const limitMatch =
+      prompt.match(/(?:next|upcoming|first|下|前)\s*([0-9]{1,2})\s*(?:eta|bus|buses|班|班車)?/i) ||
+      prompt.match(/([0-9]{1,2})\s*(?:eta|arrivals|departures|班車)/i);
+    if (limitMatch) {
+      limit = parseInt(limitMatch[1], 10);
+    }
+
+    // 3. Extract Origin / Boarding Stop
+    let origin: string | undefined;
+    const originMatch =
+      prompt.match(/(?:i am at|at|from|boarding at|departing from|喺|在|由)\s*([^,，]+?)\s*(?:and want|to go to|to|heading|想去|去|前往)/i) ||
+      prompt.match(/(?:i am at|at|from|喺|在)\s*([^,，]+?)(?:[,\.，\?]|$)/i);
+    if (originMatch) {
+      origin = originMatch[1].trim();
+    }
+
+    // 4. Extract Destination
+    let destination: string | undefined;
+    const destMatch = prompt.match(
+      /(?:and want to go to|and want to|and want|want to go to|want to|heading to|going to|去|想去|前往)\s*([^,，]+?)(?:[,\.，\?]|(?:\s+how|\s+next|\s+for|\s+what|\s*[0-9]{1,3}[A-Za-z]{0,2}|$))/i
+    );
+    if (destMatch) {
+      destination = destMatch[1].trim();
+    }
+
+    const toolArgs: Record<string, any> = { route };
+    if (origin) toolArgs.origin = origin;
+    if (destination) toolArgs.destination = destination;
+    if (limit) toolArgs.limit = limit;
+
+    const { result } = await pluginRegistry.executeTool('kmb_bus_get_eta', toolArgs, 'simulator');
+    toolCallsExecuted.push({ name: 'kmb_bus_get_eta', arguments: toolArgs, result });
+
+    const spokenText = result?.summary || result?.message || `Checked KMB route ${route}.`;
+    return {
+      replyText: spokenText,
+      expression: 'happy',
+      toolCallsExecuted,
+    };
+  }
+
+  // 6. Timer
+  if (
+    p.includes('timer') ||
+    p.includes('pomodoro') ||
+    p.includes('countdown') ||
+    p.includes('倒计时') ||
+    p.includes('定时') ||
+    ((p.includes('set') || p.includes('start')) && (p.includes('minute') || p.includes('min')))
+  ) {
     const match = p.match(/(\d+)/);
     const minutes = match ? parseInt(match[1], 10) : 10;
     const { result } = await pluginRegistry.executeTool(
@@ -235,29 +313,13 @@ async function localIntentExecution(prompt: string): Promise<ChatSimulationResul
     };
   }
 
-  // 6. Weather
+  // 7. Weather
   if (p.includes('weather') || p.includes('forecast') || p.includes('rain') || p.includes('temperature') || p.includes('天气')) {
     const city = p.includes('tokyo') ? 'Tokyo' : p.includes('san francisco') ? 'San Francisco' : p.includes('london') ? 'London' : 'Shenzhen';
     const { result } = await pluginRegistry.executeTool('weather_get_forecast', { city }, 'simulator');
     toolCallsExecuted.push({ name: 'weather_get_forecast', arguments: { city }, result });
     return {
       replyText: `In ${city}, it's currently ${result.temperature} with ${result.condition}. ${result.forecast}`,
-      expression: 'happy',
-      toolCallsExecuted,
-    };
-  }
-
-  // 6.5. KMB Bus ETA Check (Hong Kong Open Data)
-  if (p.includes('bus') || p.includes('kmb') || p.includes('九巴') || p.includes('巴士') || p.includes('eta') || p.includes('到站') || p.includes('arrive')) {
-    const routeMatch = prompt.match(/\b([0-9]{1,3}[A-Za-z]{0,2}|B[0-9]|N[0-9]{1,3})\b/);
-    const route = routeMatch ? routeMatch[1].toUpperCase() : '1A';
-
-    const { result } = await pluginRegistry.executeTool('kmb_bus_get_eta', { route }, 'simulator');
-    toolCallsExecuted.push({ name: 'kmb_bus_get_eta', arguments: { route }, result });
-
-    const spokenText = result?.summary || result?.message || `Checked KMB route ${route}.`;
-    return {
-      replyText: spokenText,
       expression: 'happy',
       toolCallsExecuted,
     };

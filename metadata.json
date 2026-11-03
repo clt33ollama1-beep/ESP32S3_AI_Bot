@@ -1,0 +1,6 @@
+{
+  "name": "Xiaozhi AI MCP Center",
+  "description": "Aggregator and runtime center for custom plugins, automation workflows, and real-time interaction for the Xiaozhi ESP32-S3 AI voice robot using Model Context Protocol (MCP).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -11,7 +11,7 @@ WORKDIR /app
 
 # Install dependencies needed for compiling
 COPY package.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy source code and build config
 COPY tsconfig.json vite.config.ts index.html metadata.json ./
@@ -35,7 +35,7 @@ ENV PORT=3000
 
 # Install production dependencies only
 COPY package.json ./
-RUN npm install --omit=dev --ignore-scripts && npm cache clean --force
+RUN npm install --omit=dev --ignore-scripts --legacy-peer-deps && npm cache clean --force
 
 # Copy compiled frontend from builder
 COPY --from=builder /app/dist ./dist

@@ -50,7 +50,7 @@ tar -xzf xiaozhi-mcp-center-*.tar.gz
 cd xiaozhi-mcp-center
 
 # 2. Install dependencies
-npm install
+npm install --legacy-peer-deps
 
 # 3. Run development mode
 npm run dev

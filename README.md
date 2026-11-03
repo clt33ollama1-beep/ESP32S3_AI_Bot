@@ -86,7 +86,7 @@ Clone this repository and install dependencies:
 ```bash
 git clone <repository-url>
 cd xiaozhi-mcp-center
-npm install
+npm install --legacy-peer-deps
 ```
 
 ### 3. Environment Setup

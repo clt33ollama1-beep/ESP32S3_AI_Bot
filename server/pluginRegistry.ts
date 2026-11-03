@@ -1,5 +1,6 @@
 import { McpToolDefinition, ToolExecutionLog, XiaozhiDeviceState, AutomationRule } from './types.js';
 import { resolveRouteStop } from './kmbService.js';
+import { getLatestNews } from './newsService.js';
 
 export class PluginRegistry {
   private tools: Map<string, McpToolDefinition> = new Map();
@@ -231,6 +232,29 @@ export class PluginRegistry {
         },
       },
       {
+        name: 'news_get_latest_headlines',
+        description: 'Fetch real-time top news headlines from the internet (BBC Technology, BBC World, RTHK Hong Kong News, Hacker News) and format a concise spoken voice briefing for Xiaozhi.',
+        category: 'web',
+        enabled: true,
+        isCustom: false,
+        pluginId: 'web_intelligence',
+        handlerType: 'mock',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            category: {
+              type: 'string',
+              enum: ['tech', 'world', 'local_hk', 'business', 'hackernews'],
+              description: 'Topic category: tech (BBC Tech), world (BBC World News), local_hk (RTHK 香港即時新聞), business (BBC Business), hackernews (Hacker News top stories). Default is tech.',
+            },
+            limit: {
+              type: 'number',
+              description: 'Number of headlines to retrieve (default: 3, max: 10)',
+            },
+          },
+        },
+      },
+      {
         name: 'weather_get_forecast',
         description: 'Get current weather conditions, temperature, humidity, and forecast for a given location.',
         category: 'web',
@@ -412,6 +436,23 @@ export class PluginRegistry {
         },
         lastTriggered: new Date(Date.now() - 1000 * 60 * 8).toISOString(),
         triggerCount: 6,
+      },
+      {
+        id: 'auto-5',
+        name: 'Daily Internet News Voice Briefing',
+        description: 'Fetches real-time technology & global news from BBC / Hacker News and broadcasts spoken summary to Xiaozhi',
+        enabled: true,
+        triggerType: 'schedule',
+        triggerConfig: {
+          scheduleIntervalMin: 120,
+        },
+        actionType: 'execute_tool',
+        actionConfig: {
+          toolName: 'news_get_latest_headlines',
+          toolArguments: { category: 'tech', limit: 3 },
+        },
+        lastTriggered: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
+        triggerCount: 14,
       },
     ];
   }
@@ -679,15 +720,42 @@ export class PluginRegistry {
         };
       }
 
-      case 'web_search_summary': {
-        const query = args.query || 'current news';
+      case 'news_get_latest_headlines': {
+        const category = (args.category || 'tech') as any;
+        const limit = Math.max(1, Math.min(10, Number(args.limit || 3)));
+        const news = await getLatestNews(category, limit);
         return {
-          query,
-          sources: [
-            { title: 'Tech Updates 2026', snippet: 'ESP32-S3 applications in conversational physical computing continue to surge.' },
-            { title: 'Xiaozhi AI Open Source Ecosystem', snippet: 'Community MCP plugins enable localized device actions, smart home triggers, and real-time streaming.' },
-          ],
-          summary: `Search results for "${query}": Found multiple verified citations. Active firmware support confirmed for MCP v1.0.`,
+          status: 'success',
+          category: news.category,
+          source: news.sourceName,
+          articleCount: news.articles.length,
+          headlines: news.articles,
+          summary: news.spokenSummary,
+          timestamp: news.fetchedAt,
+        };
+      }
+
+      case 'web_search_summary': {
+        const query = (args.query || 'current news').toLowerCase();
+        let cat: any = 'tech';
+        if (query.includes('world') || query.includes('global') || query.includes('international')) cat = 'world';
+        else if (query.includes('hk') || query.includes('hong kong') || query.includes('香港')) cat = 'local_hk';
+        else if (query.includes('business') || query.includes('market') || query.includes('finance') || query.includes('經濟')) cat = 'business';
+        else if (query.includes('hacker') || query.includes('code') || query.includes('dev')) cat = 'hackernews';
+
+        const news = await getLatestNews(cat, 3);
+        return {
+          query: args.query || 'latest news',
+          category: cat,
+          sources: news.articles.map((a) => ({
+            title: a.title,
+            snippet: a.summary,
+            url: a.link,
+            pubDate: a.pubDate,
+            source: a.source,
+          })),
+          summary: news.spokenSummary,
+          timestamp: news.fetchedAt,
         };
       }
 

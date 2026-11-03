@@ -13,6 +13,8 @@ import {
   Plus,
   Bus,
   Loader2,
+  Newspaper,
+  ExternalLink,
 } from 'lucide-react';
 import { McpToolDefinition } from '../types.js';
 
@@ -33,6 +35,13 @@ export const PluginCatalog: React.FC<PluginCatalogProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Live Internet News Widget state
+  const [newsCategory, setNewsCategory] = useState<'tech' | 'world' | 'local_hk' | 'business' | 'hackernews'>('tech');
+  const [newsLimit, setNewsLimit] = useState(3);
+  const [newsResult, setNewsResult] = useState<any>(null);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [broadcastingNews, setBroadcastingNews] = useState(false);
 
   // Hong Kong KMB Bus Live ETA Widget state
   const [busRoute, setBusRoute] = useState('71A');
@@ -98,6 +107,49 @@ export const PluginCatalog: React.FC<PluginCatalogProps> = ({
       });
     } finally {
       setBroadcasting(false);
+    }
+  };
+
+  const handleFetchNews = async (catOverride?: 'tech' | 'world' | 'local_hk' | 'business' | 'hackernews') => {
+    const cat = catOverride || newsCategory;
+    setNewsLoading(true);
+    try {
+      const res = await fetch('/api/plugins/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolName: 'news_get_latest_headlines',
+          args: { category: cat, limit: newsLimit },
+          caller: 'simulator',
+        }),
+      });
+      const data = await res.json();
+      setNewsResult(data.result);
+    } catch (err: any) {
+      setNewsResult({ status: 'error', message: err.message || 'Failed to fetch live news' });
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
+  const handleBroadcastNewsToXiaozhi = async () => {
+    if (!newsResult?.summary) return;
+    setBroadcastingNews(true);
+    try {
+      await fetch('/api/plugins/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolName: 'speech_broadcast_alert',
+          args: {
+            message: newsResult.summary,
+            emotion: 'speaking',
+          },
+          caller: 'simulator',
+        }),
+      });
+    } finally {
+      setBroadcastingNews(false);
     }
   };
 
@@ -392,6 +444,146 @@ export const PluginCatalog: React.FC<PluginCatalogProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Live Internet News & Voice Briefing Widget */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-lg space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+              <Newspaper className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">
+                Live Internet News & Voice Briefing (<code className="text-sky-400 font-mono text-xs">news_get_latest_headlines</code>)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Real-time world news, technology, Hong Kong RTHK local reports, and business intelligence formatted for Xiaozhi voice output
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono text-slate-500 self-start sm:self-auto">
+            Feeds: BBC / RTHK / HackerNews
+          </span>
+        </div>
+
+        {/* Category Controls & Action */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-mono">
+            {[
+              { id: 'tech', label: 'Technology (BBC)' },
+              { id: 'world', label: 'World News (BBC)' },
+              { id: 'local_hk', label: 'Hong Kong (RTHK 即時新聞)' },
+              { id: 'business', label: 'Business & Markets' },
+              { id: 'hackernews', label: 'Hacker News' },
+            ].map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  setNewsCategory(cat.id as any);
+                  handleFetchNews(cat.id as any);
+                }}
+                className={`px-2.5 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
+                  newsCategory === cat.id
+                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 font-semibold'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => handleFetchNews()}
+            disabled={newsLoading}
+            className="flex items-center justify-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 disabled:opacity-50 rounded-lg transition-all whitespace-nowrap shadow-sm shrink-0"
+          >
+            {newsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+            <span>Fetch Live News</span>
+          </button>
+        </div>
+
+        {/* News Feed Results Display */}
+        {newsResult && (
+          <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
+            {newsResult.status === 'success' && newsResult.headlines ? (
+              <div className="space-y-3">
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 bg-sky-500/20 text-sky-300 border border-sky-500/30 rounded font-mono font-bold text-xs uppercase">
+                        {newsResult.source || newsResult.category}
+                      </span>
+                      <span className="text-xs text-slate-400 font-mono">
+                        {newsResult.headlines.length} articles updated
+                      </span>
+                    </div>
+                    {newsResult.summary && (
+                      <p className="text-xs text-sky-300/90 mt-2 font-mono italic bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                        Xiaozhi voice output: "{newsResult.summary}"
+                      </p>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={handleBroadcastNewsToXiaozhi}
+                    disabled={broadcastingNews}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shadow-sm shadow-amber-500/10 shrink-0 self-start md:self-auto"
+                    title="Xiaozhi bot will speak this news summary aloud"
+                  >
+                    {broadcastingNews ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Radio className="w-3.5 h-3.5" />}
+                    <span>Broadcast to Bot</span>
+                  </button>
+                </div>
+
+                {/* Articles List */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  {newsResult.headlines.map((article: any, idx: number) => (
+                    <div
+                      key={idx}
+                      className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-colors"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-mono text-sky-400 font-bold">
+                            #{idx + 1} · {article.source}
+                          </span>
+                          {article.link && (
+                            <a
+                              href={article.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-slate-500 hover:text-slate-300 transition-colors"
+                              title="Read original article"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                        <h4 className="text-xs font-semibold text-slate-200 line-clamp-2 leading-snug">
+                          {article.title}
+                        </h4>
+                        {article.summary && (
+                          <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                            {article.summary}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono mt-2 pt-2 border-t border-slate-900 truncate">
+                        {article.pubDate}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs text-slate-400">
+                {newsResult.message || 'No news articles available.'}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tools Grid */}

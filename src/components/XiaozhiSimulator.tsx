@@ -53,10 +53,12 @@ export const XiaozhiSimulator: React.FC<XiaozhiSimulatorProps> = ({
   const [isSpeakingAudio, setIsSpeakingAudio] = useState(false);
 
   const samplePrompts = [
+    'What is the latest technology news today?',
+    '今日香港有咩重點新聞？',
+    'Get top world news from BBC',
     'i am at taipo market MTR and want to taipo center, how the next 2 eta in minutes for 71A',
     '我喺大埔墟站想去大埔中心，71A 下2班車幾多分鐘到？',
     'Check KMB 1A bus arrival time',
-    'When is the next 960 bus arriving?',
     'Set LED ring to cyan pulse',
     'Show a happy face on OLED',
     'Check battery telemetry',

@@ -325,7 +325,44 @@ async function localIntentExecution(prompt: string): Promise<ChatSimulationResul
     };
   }
 
-  // 7. Smart home
+  // 7. Live Internet News (BBC, RTHK, Hacker News)
+  if (
+    p.includes('news') ||
+    p.includes('headline') ||
+    p.includes('新聞') ||
+    p.includes('頭條') ||
+    p.includes('hot topic') ||
+    p.includes('what happened') ||
+    p.includes('what is happening')
+  ) {
+    let category: 'tech' | 'world' | 'local_hk' | 'business' | 'hackernews' = 'tech';
+    if (p.includes('hk') || p.includes('hong kong') || p.includes('香港') || p.includes('本地') || p.includes('港聞')) {
+      category = 'local_hk';
+    } else if (p.includes('world') || p.includes('global') || p.includes('international') || p.includes('國際') || p.includes('世界')) {
+      category = 'world';
+    } else if (p.includes('business') || p.includes('finance') || p.includes('market') || p.includes('經濟') || p.includes('財經')) {
+      category = 'business';
+    } else if (p.includes('hacker') || /\bhn\b/i.test(prompt)) {
+      category = 'hackernews';
+    } else {
+      category = 'tech';
+    }
+
+    let limit = 3;
+    const limitMatch = prompt.match(/([0-9]{1,2})\s*(?:news|headlines|items|stories|條|則)/i);
+    if (limitMatch) limit = Math.max(1, Math.min(5, parseInt(limitMatch[1], 10)));
+
+    const { result } = await pluginRegistry.executeTool('news_get_latest_headlines', { category, limit }, 'simulator');
+    toolCallsExecuted.push({ name: 'news_get_latest_headlines', arguments: { category, limit }, result });
+
+    return {
+      replyText: result?.summary || `Retrieved latest ${category} news from the internet.`,
+      expression: 'speaking',
+      toolCallsExecuted,
+    };
+  }
+
+  // 8. Smart home
   if (p.includes('turn on') || p.includes('turn off') || p.includes('fan') || p.includes('lamp') || p.includes('socket') || p.includes('switch')) {
     const state = p.includes('off') ? 'off' : 'on';
     const device_id = p.includes('fan') ? 'desk_fan' : p.includes('ac') ? 'air_conditioner' : 'living_room_light';

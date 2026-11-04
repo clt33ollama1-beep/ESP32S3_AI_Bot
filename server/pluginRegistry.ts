@@ -1,4 +1,4 @@
-import { McpToolDefinition, ToolExecutionLog, XiaozhiDeviceState, AutomationRule } from './types.js';
+import { McpToolDefinition, ToolExecutionLog, XiaozhiDeviceState, AutomationRule, SecretWordAlias } from './types.js';
 import { resolveRouteStop } from './kmbService.js';
 import { getLatestNews } from './newsService.js';
 
@@ -6,6 +6,7 @@ export class PluginRegistry {
   private tools: Map<string, McpToolDefinition> = new Map();
   private logs: ToolExecutionLog[] = [];
   private automations: AutomationRule[] = [];
+  private secretWords: SecretWordAlias[] = [];
   public deviceState: XiaozhiDeviceState = {
     deviceId: 'esp32s3-xz-8a4b2c',
     deviceName: 'Xiaozhi AI Companion (ESP32-S3)',
@@ -26,6 +27,7 @@ export class PluginRegistry {
   constructor() {
     this.registerDefaultTools();
     this.registerDefaultAutomations();
+    this.registerDefaultSecretWords();
   }
 
   private registerDefaultTools() {
@@ -518,6 +520,132 @@ export class PluginRegistry {
     if (!rule) return false;
     rule.enabled = !rule.enabled;
     return rule.enabled;
+  }
+
+  private registerDefaultSecretWords() {
+    this.secretWords = [
+      {
+        id: 'sw-1',
+        triggerPhrase: 'How my bus for school',
+        expandedPrompt: 'I am in TaiPo market MTR station, what is the coming two eta for 71A in minutes',
+        description: 'Translates school commute question into precise KMB 71A arrival query at Tai Po Market MTR',
+        matchMode: 'contains',
+        enabled: true,
+        triggerCount: 3,
+        lastTriggered: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+      },
+      {
+        id: 'sw-2',
+        triggerPhrase: '返學巴士',
+        expandedPrompt: '我喺大埔墟站想去大埔中心，71A 下2班車幾多分鐘到？',
+        description: 'Cantonese school bus shortcut for 71A at Tai Po Market',
+        matchMode: 'contains',
+        enabled: true,
+        triggerCount: 2,
+        lastTriggered: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+      },
+      {
+        id: 'sw-3',
+        triggerPhrase: 'Heading home',
+        expandedPrompt: 'When is the next 960 bus arriving from Exhibition Centre towards Tuen Mun',
+        description: 'Evening commute shortcut for KMB 960 to Tuen Mun',
+        matchMode: 'contains',
+        enabled: true,
+        triggerCount: 6,
+        lastTriggered: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
+      },
+      {
+        id: 'sw-4',
+        triggerPhrase: 'Morning briefing',
+        expandedPrompt: 'Set LED ring to warm gold, play success chime, and tell me the latest tech news',
+        description: 'Wake-up routine: lights up gold LED, chimes, and reads top tech headlines',
+        matchMode: 'contains',
+        enabled: true,
+        triggerCount: 14,
+        lastTriggered: new Date(Date.now() - 1000 * 60 * 300).toISOString(),
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString(),
+      },
+      {
+        id: 'sw-5',
+        triggerPhrase: 'Goodnight Xiaozhi',
+        expandedPrompt: 'Turn off LED ring, show sleep face on OLED, and turn off living room light',
+        description: 'Bedtime routine: switches off lights and displays sleepy expression',
+        matchMode: 'contains',
+        enabled: true,
+        triggerCount: 9,
+        lastTriggered: new Date(Date.now() - 1000 * 60 * 600).toISOString(),
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString(),
+      },
+    ];
+  }
+
+  public getSecretWords(): SecretWordAlias[] {
+    return this.secretWords;
+  }
+
+  public upsertSecretWord(alias: SecretWordAlias): void {
+    const idx = this.secretWords.findIndex((s) => s.id === alias.id);
+    if (idx >= 0) {
+      this.secretWords[idx] = alias;
+    } else {
+      this.secretWords.unshift(alias);
+    }
+  }
+
+  public deleteSecretWord(id: string): boolean {
+    const initialLen = this.secretWords.length;
+    this.secretWords = this.secretWords.filter((s) => s.id !== id);
+    return this.secretWords.length < initialLen;
+  }
+
+  public toggleSecretWord(id: string): boolean {
+    const sw = this.secretWords.find((s) => s.id === id);
+    if (!sw) return false;
+    sw.enabled = !sw.enabled;
+    return sw.enabled;
+  }
+
+  public resolveSecretWord(inputPrompt: string): {
+    matched: boolean;
+    alias?: SecretWordAlias;
+    originalPrompt: string;
+    resolvedPrompt: string;
+  } {
+    const normInput = inputPrompt.trim().toLowerCase();
+    if (!normInput) {
+      return { matched: false, originalPrompt: inputPrompt, resolvedPrompt: inputPrompt };
+    }
+
+    for (const sw of this.secretWords) {
+      if (!sw.enabled) continue;
+      const normTrigger = sw.triggerPhrase.trim().toLowerCase();
+
+      let isMatch = false;
+      if (sw.matchMode === 'exact') {
+        isMatch = normInput === normTrigger;
+      } else {
+        isMatch =
+          normInput.includes(normTrigger) ||
+          normTrigger.includes(normInput) ||
+          normInput.replace(/[^a-z0-9\u4e00-\u9fa5]/g, '').includes(normTrigger.replace(/[^a-z0-9\u4e00-\u9fa5]/g, ''));
+      }
+
+      if (isMatch) {
+        sw.triggerCount = (sw.triggerCount || 0) + 1;
+        sw.lastTriggered = new Date().toISOString();
+        return {
+          matched: true,
+          alias: sw,
+          originalPrompt: inputPrompt,
+          resolvedPrompt: sw.expandedPrompt,
+        };
+      }
+    }
+
+    return { matched: false, originalPrompt: inputPrompt, resolvedPrompt: inputPrompt };
   }
 
   public async executeTool(

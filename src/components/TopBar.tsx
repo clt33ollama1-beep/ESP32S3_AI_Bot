@@ -2,11 +2,12 @@ import React from 'react';
 import { Plus, Bot, Download } from 'lucide-react';
 
 interface TopBarProps {
-  activeTab: 'plugins' | 'simulator' | 'automations' | 'protocol';
-  setActiveTab: (tab: 'plugins' | 'simulator' | 'automations' | 'protocol') => void;
+  activeTab: 'plugins' | 'simulator' | 'secret-words' | 'automations' | 'protocol';
+  setActiveTab: (tab: 'plugins' | 'simulator' | 'secret-words' | 'automations' | 'protocol') => void;
   onOpenCreateModal: () => void;
   onOpenExportModal: () => void;
   activeToolsCount: number;
+  secretWordsCount?: number;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -15,6 +16,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenCreateModal,
   onOpenExportModal,
   activeToolsCount,
+  secretWordsCount,
 }) => {
   return (
     <header className="sticky top-0 z-50 flex items-center justify-between gap-8 px-6 py-3.5 bg-slate-900/95 backdrop-blur-md border-b border-slate-800">
@@ -31,7 +33,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         </a>
       </div>
 
-      {/* Zone 2: 4 concise single-line navigation links */}
+      {/* Zone 2: Navigation links */}
       <nav className="hidden md:flex items-center gap-1.5 p-1 bg-slate-950/60 rounded-lg border border-slate-800/80">
         <button
           onClick={() => setActiveTab('plugins')}
@@ -52,6 +54,16 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
         >
           ESP32 Simulator
+        </button>
+        <button
+          onClick={() => setActiveTab('secret-words')}
+          className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+            activeTab === 'secret-words'
+              ? 'bg-slate-800 text-amber-400 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Secret Words {secretWordsCount !== undefined ? `(${secretWordsCount})` : ''}
         </button>
         <button
           onClick={() => setActiveTab('automations')}

@@ -83,3 +83,15 @@ export interface XiaozhiDeviceState {
   };
   lastSeen: string;
 }
+
+export interface SecretWordAlias {
+  id: string;
+  triggerPhrase: string;
+  expandedPrompt: string;
+  description?: string;
+  matchMode: 'contains' | 'exact' | 'fuzzy';
+  enabled: boolean;
+  triggerCount: number;
+  lastTriggered?: string;
+  createdAt: string;
+}

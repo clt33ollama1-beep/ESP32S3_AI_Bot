@@ -30,6 +30,12 @@ interface Message {
     arguments: Record<string, any>;
     result: any;
   }>;
+  secretWordTriggered?: {
+    aliasId?: string;
+    triggerPhrase: string;
+    expandedPrompt: string;
+    description?: string;
+  };
   timestamp: string;
 }
 
@@ -53,17 +59,17 @@ export const XiaozhiSimulator: React.FC<XiaozhiSimulatorProps> = ({
   const [isSpeakingAudio, setIsSpeakingAudio] = useState(false);
 
   const samplePrompts = [
+    'How my bus for school',
+    '返學巴士',
+    'i am at taipo market MTR and want to taipo center, how the next 2 eta in minutes for 71A',
     'What is the latest technology news today?',
     '今日香港有咩重點新聞？',
     'Get top world news from BBC',
-    'i am at taipo market MTR and want to taipo center, how the next 2 eta in minutes for 71A',
-    '我喺大埔墟站想去大埔中心，71A 下2班車幾多分鐘到？',
     'Check KMB 1A bus arrival time',
     'Set LED ring to cyan pulse',
     'Show a happy face on OLED',
     'Check battery telemetry',
     'Set a 15-minute tea timer',
-    'Turn on living room light',
   ];
 
   const handleSpeakText = (text: string) => {
@@ -115,6 +121,7 @@ export const XiaozhiSimulator: React.FC<XiaozhiSimulatorProps> = ({
         sender: 'xiaozhi',
         text: data.replyText,
         toolCalls: data.toolCallsExecuted,
+        secretWordTriggered: data.secretWordTriggered,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
@@ -359,6 +366,28 @@ export const XiaozhiSimulator: React.FC<XiaozhiSimulatorProps> = ({
                     : 'bg-slate-950 border border-slate-800 text-slate-200'
                 }`}
               >
+                {/* Render Secret Word banner if voice alias was triggered */}
+                {m.secretWordTriggered && (
+                  <div className="mb-2.5 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 font-mono text-[11px] flex items-start gap-2">
+                    <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" />
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 font-sans font-semibold text-amber-400">
+                        <span>Secret Word Alias Triggered</span>
+                        {m.secretWordTriggered.description && (
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            ({m.secretWordTriggered.description})
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-300 flex items-center gap-1 flex-wrap">
+                        <span className="text-amber-300 font-medium">"{m.secretWordTriggered.triggerPhrase}"</span>
+                        <span className="text-slate-500">➔</span>
+                        <span className="text-white italic">"{m.secretWordTriggered.expandedPrompt}"</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <p>{m.text}</p>
 
                 {/* Render executed tool calls if present */}

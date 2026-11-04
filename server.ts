@@ -14,7 +14,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+function resolvePort(): number {
+  const args = process.argv.slice(2);
+  const portArgIndex = args.indexOf('--port');
+  if (portArgIndex !== -1 && args[portArgIndex + 1]) {
+    const p = parseInt(args[portArgIndex + 1], 10);
+    if (!isNaN(p)) return p;
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    return 3000;
+  }
+  if (process.env.PORT) {
+    const p = parseInt(process.env.PORT, 10);
+    if (!isNaN(p)) return p;
+  }
+  return 3000;
+}
+
+const PORT = resolvePort();
 
 // Enable CORS & JSON parsing
 app.use(express.json({ limit: '10mb' }));
@@ -279,7 +297,55 @@ app.post('/api/xiaozhi/simulate-chat', async (req: Request, res: Response) => {
 });
 
 // ==========================================
-// 4. Automations & Webhooks
+// 4. Secret Words & Voice Aliases Endpoints
+// ==========================================
+
+app.get('/api/secret-words', (_req: Request, res: Response) => {
+  res.json({ secretWords: pluginRegistry.getSecretWords() });
+});
+
+app.post('/api/secret-words', (req: Request, res: Response) => {
+  const { triggerPhrase, expandedPrompt, description, matchMode, enabled, id } = req.body;
+  if (!triggerPhrase || !expandedPrompt) {
+    return res.status(400).json({ error: 'triggerPhrase and expandedPrompt are required' });
+  }
+
+  const alias = {
+    id: id || `sw-${Date.now()}`,
+    triggerPhrase: triggerPhrase.trim(),
+    expandedPrompt: expandedPrompt.trim(),
+    description: description?.trim() || '',
+    matchMode: matchMode || 'contains',
+    enabled: enabled ?? true,
+    triggerCount: 0,
+    createdAt: new Date().toISOString(),
+  };
+
+  pluginRegistry.upsertSecretWord(alias);
+  res.json({ success: true, alias });
+});
+
+app.delete('/api/secret-words/:id', (req: Request, res: Response) => {
+  const deleted = pluginRegistry.deleteSecretWord(req.params.id);
+  res.json({ success: deleted });
+});
+
+app.post('/api/secret-words/:id/toggle', (req: Request, res: Response) => {
+  const enabled = pluginRegistry.toggleSecretWord(req.params.id);
+  res.json({ success: true, enabled });
+});
+
+app.post('/api/secret-words/test', (req: Request, res: Response) => {
+  const { phrase } = req.body;
+  if (!phrase) {
+    return res.status(400).json({ error: 'phrase is required' });
+  }
+  const resolution = pluginRegistry.resolveSecretWord(phrase);
+  res.json(resolution);
+});
+
+// ==========================================
+// 5. Automations & Webhooks
 // ==========================================
 
 app.get('/api/automations', (_req: Request, res: Response) => {

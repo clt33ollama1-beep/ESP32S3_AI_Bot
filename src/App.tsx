@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { TopBar } from './components/TopBar.js';
 import { PluginCatalog } from './components/PluginCatalog.js';
 import { XiaozhiSimulator } from './components/XiaozhiSimulator.js';
+import { SecretWordManager } from './components/SecretWordManager.js';
 import { AutomationEngine } from './components/AutomationEngine.js';
 import { ProtocolInspector } from './components/ProtocolInspector.js';
 import { PluginTestModal } from './components/PluginTestModal.js';
@@ -17,14 +18,16 @@ import {
   XiaozhiDeviceState,
   AutomationRule,
   ToolExecutionLog,
+  SecretWordAlias,
 } from './types.js';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'plugins' | 'simulator' | 'automations' | 'protocol'>('plugins');
+  const [activeTab, setActiveTab] = useState<'plugins' | 'simulator' | 'secret-words' | 'automations' | 'protocol'>('plugins');
 
   const [tools, setTools] = useState<McpToolDefinition[]>([]);
   const [rules, setRules] = useState<AutomationRule[]>([]);
   const [logs, setLogs] = useState<ToolExecutionLog[]>([]);
+  const [secretWords, setSecretWords] = useState<SecretWordAlias[]>([]);
   const [deviceState, setDeviceState] = useState<XiaozhiDeviceState>({
     deviceId: 'esp32s3-xz-8a4b2c',
     deviceName: 'Xiaozhi AI Companion (ESP32-S3)',
@@ -86,6 +89,21 @@ export default function App() {
     }
   }, []);
 
+  // Fetch secret words
+  const fetchSecretWords = useCallback(async () => {
+    try {
+      const res = await fetch('/api/secret-words');
+      const data = await res.json();
+      if (Array.isArray(data.secretWords)) {
+        setSecretWords(data.secretWords);
+      } else if (Array.isArray(data)) {
+        setSecretWords(data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch secret words:', err);
+    }
+  }, []);
+
   // Fetch Xiaozhi device status
   const fetchDeviceState = useCallback(async () => {
     try {
@@ -101,7 +119,7 @@ export default function App() {
 
   // Initial data load
   useEffect(() => {
-    Promise.all([fetchTools(), fetchAutomations(), fetchLogs(), fetchDeviceState()]).finally(() => {
+    Promise.all([fetchTools(), fetchAutomations(), fetchSecretWords(), fetchLogs(), fetchDeviceState()]).finally(() => {
       setLoadingInitial(false);
     });
 
@@ -112,7 +130,7 @@ export default function App() {
     }, 4500);
 
     return () => clearInterval(interval);
-  }, [fetchTools, fetchAutomations, fetchLogs, fetchDeviceState]);
+  }, [fetchTools, fetchAutomations, fetchSecretWords, fetchLogs, fetchDeviceState]);
 
   // Tool actions
   const handleToggleTool = async (name: string) => {
@@ -151,6 +169,7 @@ export default function App() {
         onOpenCreateModal={() => setIsCreateModalOpen(true)}
         onOpenExportModal={() => setIsExportModalOpen(true)}
         activeToolsCount={tools.filter((t) => t.enabled).length}
+        secretWordsCount={secretWords.filter((s) => s.enabled).length}
       />
 
       {/* Main Viewport Content */}
@@ -170,6 +189,15 @@ export default function App() {
             deviceState={deviceState}
             onRefreshDevice={fetchDeviceState}
             onDeviceStateChange={handleDeviceStateChange}
+          />
+        )}
+
+        {activeTab === 'secret-words' && (
+          <SecretWordManager
+            secretWords={secretWords}
+            onRefreshSecretWords={fetchSecretWords}
+            onRefreshLogs={fetchLogs}
+            onRefreshDevice={fetchDeviceState}
           />
         )}
 

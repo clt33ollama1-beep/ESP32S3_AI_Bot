@@ -9,11 +9,27 @@ export interface ChatSimulationResult {
     arguments: Record<string, any>;
     result: any;
   }>;
+  secretWordTriggered?: {
+    triggerPhrase: string;
+    expandedPrompt: string;
+    description?: string;
+  };
 }
 
 export async function simulateXiaozhiInteraction(prompt: string): Promise<ChatSimulationResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   const activeTools = pluginRegistry.getActiveTools();
+
+  // 1. Resolve secret word / voice alias if matching
+  const aliasResolution = pluginRegistry.resolveSecretWord(prompt);
+  const effectivePrompt = aliasResolution.matched ? aliasResolution.resolvedPrompt : prompt;
+  const secretWordTriggered = aliasResolution.matched
+    ? {
+        triggerPhrase: aliasResolution.alias!.triggerPhrase,
+        expandedPrompt: aliasResolution.alias!.expandedPrompt,
+        description: aliasResolution.alias!.description,
+      }
+    : undefined;
 
   // If Gemini API Key is available, use real Gemini 2.5 Flash with function declarations
   if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
@@ -50,7 +66,7 @@ export async function simulateXiaozhiInteraction(prompt: string): Promise<ChatSi
         contents: [
           {
             role: 'user',
-            parts: [{ text: prompt }],
+            parts: [{ text: effectivePrompt }],
           },
         ],
         config: {
@@ -80,7 +96,7 @@ After calling tools or answering, provide a concise, friendly spoken response su
         const followUp = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
           contents: [
-            { role: 'user', parts: [{ text: prompt }] },
+            { role: 'user', parts: [{ text: effectivePrompt }] },
             {
               role: 'model',
               parts: functionCalls.map((fc) => ({
@@ -102,15 +118,17 @@ After calling tools or answering, provide a concise, friendly spoken response su
         const replyText = followUp.text || 'I have completed that for you!';
         return {
           replyText,
-          expression: determineExpression(prompt, replyText),
+          expression: determineExpression(effectivePrompt, replyText),
           toolCallsExecuted,
+          secretWordTriggered,
         };
       }
 
       return {
         replyText: response.text || 'Hello! Xiaozhi is ready to help.',
-        expression: determineExpression(prompt, response.text || ''),
+        expression: determineExpression(effectivePrompt, response.text || ''),
         toolCallsExecuted: [],
+        secretWordTriggered,
       };
     } catch (err) {
       console.warn('Gemini API call failed, falling back to local intent parser:', err);
@@ -118,7 +136,7 @@ After calling tools or answering, provide a concise, friendly spoken response su
   }
 
   // High-fidelity local intent parser & dispatcher for ESP32-S3 Xiaozhi
-  return localIntentExecution(prompt);
+  return localIntentExecution(effectivePrompt, secretWordTriggered);
 }
 
 function determineExpression(
@@ -135,7 +153,18 @@ function determineExpression(
   return 'speaking';
 }
 
-async function localIntentExecution(prompt: string): Promise<ChatSimulationResult> {
+async function localIntentExecution(
+  prompt: string,
+  secretWordTriggered?: ChatSimulationResult['secretWordTriggered']
+): Promise<ChatSimulationResult> {
+  const result = await internalIntentExecution(prompt);
+  return {
+    ...result,
+    secretWordTriggered,
+  };
+}
+
+async function internalIntentExecution(prompt: string): Promise<ChatSimulationResult> {
   const p = prompt.toLowerCase();
   const toolCallsExecuted: Array<{ name: string; arguments: any; result: any }> = [];
 

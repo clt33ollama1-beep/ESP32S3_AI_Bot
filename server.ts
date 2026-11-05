@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -242,6 +243,11 @@ app.post('/api/xiaozhi/cloud-bridge/connect', (req: Request, res: Response) => {
 
 app.post('/api/xiaozhi/cloud-bridge/disconnect', (_req: Request, res: Response) => {
   xiaozhiCloudBridge.disconnect();
+  res.json(xiaozhiCloudBridge.getStatus());
+});
+
+app.post('/api/xiaozhi/cloud-bridge/reload-env', (_req: Request, res: Response) => {
+  xiaozhiCloudBridge.initFromEnv(true);
   res.json(xiaozhiCloudBridge.getStatus());
 });
 

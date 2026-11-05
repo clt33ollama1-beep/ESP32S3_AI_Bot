@@ -17,19 +17,28 @@ import {
   Unplug,
   Zap,
   Wifi,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  HelpCircle,
+  Info,
 } from 'lucide-react';
-import { ToolExecutionLog } from '../types.js';
+import { ToolExecutionLog, XiaozhiCloudBridgeStatus } from '../types.js';
 
 interface ProtocolInspectorProps {
   logs: ToolExecutionLog[];
   onClearLogs: () => void;
   activeToolsCount: number;
+  cloudStatusProp?: XiaozhiCloudBridgeStatus;
+  onRefreshCloudStatus?: () => void;
 }
 
 export const ProtocolInspector: React.FC<ProtocolInspectorProps> = ({
   logs,
   onClearLogs,
   activeToolsCount,
+  cloudStatusProp,
+  onRefreshCloudStatus,
 }) => {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
   const [pingLoading, setPingLoading] = useState(false);
@@ -38,8 +47,9 @@ export const ProtocolInspector: React.FC<ProtocolInspectorProps> = ({
 
   // Xiaozhi Cloud Bridge (wss://api.xiaozhi.me/mcp/?token=...)
   const [cloudWsUrl, setCloudWsUrl] = useState('');
-  const [cloudStatus, setCloudStatus] = useState<any>({ status: 'disconnected' });
+  const [cloudStatus, setCloudStatus] = useState<any>(cloudStatusProp || { status: 'disconnected' });
   const [cloudLoading, setCloudLoading] = useState(false);
+  const [reloadNotice, setReloadNotice] = useState<string | null>(null);
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
 
@@ -128,6 +138,16 @@ mcp_servers:
     }
   };
 
+  // Sync from prop if provided by parent App
+  useEffect(() => {
+    if (cloudStatusProp) {
+      setCloudStatus(cloudStatusProp);
+      if (cloudStatusProp.url && !cloudWsUrl) {
+        setCloudWsUrl(cloudStatusProp.url);
+      }
+    }
+  }, [cloudStatusProp]);
+
   useEffect(() => {
     fetchCloudStatus();
     const interval = setInterval(fetchCloudStatus, 3500);
@@ -146,6 +166,7 @@ mcp_servers:
       });
       const data = await res.json();
       setCloudStatus(data);
+      onRefreshCloudStatus?.();
     } finally {
       setCloudLoading(false);
     }
@@ -157,6 +178,29 @@ mcp_servers:
       const res = await fetch('/api/xiaozhi/cloud-bridge/disconnect', { method: 'POST' });
       const data = await res.json();
       setCloudStatus(data);
+      onRefreshCloudStatus?.();
+    } finally {
+      setCloudLoading(false);
+    }
+  };
+
+  const handleReloadEnv = async () => {
+    setCloudLoading(true);
+    setReloadNotice(null);
+    try {
+      const res = await fetch('/api/xiaozhi/cloud-bridge/reload-env', { method: 'POST' });
+      const data = await res.json();
+      setCloudStatus(data);
+      if (data.url) {
+        setCloudWsUrl(data.url);
+        setReloadNotice(`Loaded ${data.sanitizedUrl || 'endpoint'} from .env`);
+      } else {
+        setReloadNotice('No active XIAOZHI_MCP_WS_URL found in .env');
+      }
+      onRefreshCloudStatus?.();
+      setTimeout(() => setReloadNotice(null), 4000);
+    } catch (e: any) {
+      setReloadNotice(`Reload failed: ${e.message}`);
     } finally {
       setCloudLoading(false);
     }
@@ -185,17 +229,35 @@ mcp_servers:
               <Cloud className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white">
-                Xiaozhi Official Cloud Bridge (<code className="text-cyan-400 font-mono text-xs">api.xiaozhi.me</code>)
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-white">
+                  Xiaozhi Official Cloud Bridge (<code className="text-cyan-400 font-mono text-xs">api.xiaozhi.me</code>)
+                </h3>
+                {cloudStatus.configuredInEnv && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                    Configured in .env
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 Connect your custom MCP tools directly to Xiaozhi's outbound WebSocket endpoint
               </p>
             </div>
           </div>
 
-          {/* Connection Status Tag */}
+          {/* Connection Status Tag & Reload Action */}
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleReloadEnv}
+              disabled={cloudLoading}
+              title="Re-read XIAOZHI_MCP_WS_URL from .env file and connect"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-md transition-colors"
+            >
+              <RefreshCw className={`w-3 h-3 ${cloudLoading ? 'animate-spin' : ''}`} />
+              <span>Reload .env</span>
+            </button>
+
             {isConnected ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -218,6 +280,13 @@ mcp_servers:
             )}
           </div>
         </div>
+
+        {reloadNotice && (
+          <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-lg text-xs text-cyan-300 flex items-center gap-2">
+            <Info className="w-4 h-4 shrink-0" />
+            <span>{reloadNotice}</span>
+          </div>
+        )}
 
         {/* WebSocket URL Input & Connect Action */}
         <form onSubmit={handleConnectCloud} className="space-y-3">
@@ -266,9 +335,16 @@ mcp_servers:
 
           {/* Cloud Bridge Telemetry & Error details */}
           {cloudStatus.lastError && (
-            <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-300 flex items-center gap-2 font-mono">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{cloudStatus.lastError}</span>
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-300 space-y-1.5 font-mono">
+              <div className="flex items-center gap-2 font-semibold">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>Error: {cloudStatus.lastError}</span>
+              </div>
+              <div className="text-[11px] text-rose-300/80 pl-6 space-y-0.5 font-sans">
+                <p>• Check that your token is valid, active, and copied directly from <a href="https://xiaozhi.me" target="_blank" rel="noreferrer" className="underline hover:text-white">xiaozhi.me</a>.</p>
+                <p>• If set in <code className="bg-slate-900 px-1 py-0.5 rounded text-[10px]">.env</code>, ensure there are no trailing spaces or extra quotes: <code className="bg-slate-900 px-1 py-0.5 rounded text-[10px]">XIAOZHI_MCP_WS_URL=wss://api.xiaozhi.me/mcp/?token=ey...</code></p>
+                <p>• Verify your network/firewall allows outbound WebSocket connections on port 443.</p>
+              </div>
             </div>
           )}
 

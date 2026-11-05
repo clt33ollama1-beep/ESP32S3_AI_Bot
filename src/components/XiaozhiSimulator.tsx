@@ -11,14 +11,19 @@ import {
   Play,
   RotateCcw,
   Zap,
+  Cloud,
+  AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { OledFace } from './OledFace.js';
-import { XiaozhiDeviceState } from '../types.js';
+import { XiaozhiDeviceState, XiaozhiCloudBridgeStatus } from '../types.js';
 
 interface XiaozhiSimulatorProps {
   deviceState: XiaozhiDeviceState;
+  cloudStatus?: XiaozhiCloudBridgeStatus;
   onRefreshDevice: () => void;
   onDeviceStateChange: (updates: Partial<XiaozhiDeviceState>) => void;
+  onOpenCloudSettings?: () => void;
 }
 
 interface Message {
@@ -41,8 +46,10 @@ interface Message {
 
 export const XiaozhiSimulator: React.FC<XiaozhiSimulatorProps> = ({
   deviceState,
+  cloudStatus,
   onRefreshDevice,
   onDeviceStateChange,
+  onOpenCloudSettings,
 }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -233,6 +240,80 @@ export const XiaozhiSimulator: React.FC<XiaozhiSimulatorProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Xiaozhi Outbound Cloud Bridge Status Box */}
+          {cloudStatus && (
+            <div className="mt-4 p-3 bg-slate-950/70 rounded-xl border border-slate-800/90 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-slate-300 font-medium">
+                  <Cloud className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Outbound Cloud Gateway</span>
+                </div>
+                {cloudStatus.status === 'connected' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    CONNECTED
+                  </span>
+                ) : cloudStatus.status === 'connecting' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    CONNECTING
+                  </span>
+                ) : cloudStatus.status === 'error' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                    <AlertCircle className="w-3 h-3" />
+                    ERROR
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700/60">
+                    DISCONNECTED
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-2 text-[11px] font-mono text-slate-400 truncate flex items-center justify-between gap-2">
+                <div className="truncate">
+                  {cloudStatus.sanitizedUrl ? (
+                    <span className="text-cyan-300 truncate" title={cloudStatus.sanitizedUrl}>
+                      {cloudStatus.sanitizedUrl}
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 italic">No WebSocket URL configured</span>
+                  )}
+                </div>
+                {cloudStatus.configuredInEnv && (
+                  <span className="shrink-0 text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                    .env
+                  </span>
+                )}
+              </div>
+
+              {cloudStatus.status === 'error' && cloudStatus.lastError && (
+                <div className="mt-1.5 p-1.5 bg-rose-500/10 border border-rose-500/20 rounded text-[10px] text-rose-300 leading-tight">
+                  {cloudStatus.lastError}
+                </div>
+              )}
+
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                <span className="text-slate-500">
+                  {cloudStatus.status === 'connected'
+                    ? `Ping: ${cloudStatus.lastPingMs ? cloudStatus.lastPingMs + 'ms' : 'active'} · ${cloudStatus.messagesReceived} msgs`
+                    : cloudStatus.status === 'connecting'
+                    ? `Attempt ${cloudStatus.reconnectAttempts || 1}...`
+                    : 'Requires token entrypoint'}
+                </span>
+                {onOpenCloudSettings && (
+                  <button
+                    onClick={onOpenCloudSettings}
+                    className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300 text-[11px] font-medium transition-colors"
+                  >
+                    <span>Inspect</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Telemetry Strip */}
           <div className="mt-5 grid grid-cols-3 gap-2 text-center pt-3 border-t border-slate-800/80 font-mono text-xs">

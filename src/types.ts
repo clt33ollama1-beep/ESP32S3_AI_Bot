@@ -95,3 +95,18 @@ export interface SecretWordAlias {
   lastTriggered?: string;
   createdAt: string;
 }
+
+export interface XiaozhiCloudBridgeStatus {
+  status: 'disconnected' | 'connecting' | 'connected' | 'error';
+  url: string;
+  sanitizedUrl: string;
+  configuredInEnv: boolean;
+  connectedAt: string | null;
+  lastPingMs: number | null;
+  lastError: string | null;
+  messagesSent: number;
+  messagesReceived: number;
+  activeToolsCount: number;
+  reconnectAttempts: number;
+}
+

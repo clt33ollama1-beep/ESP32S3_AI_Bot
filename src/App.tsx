@@ -19,6 +19,7 @@ import {
   AutomationRule,
   ToolExecutionLog,
   SecretWordAlias,
+  XiaozhiCloudBridgeStatus,
 } from './types.js';
 
 export default function App() {
@@ -28,6 +29,19 @@ export default function App() {
   const [rules, setRules] = useState<AutomationRule[]>([]);
   const [logs, setLogs] = useState<ToolExecutionLog[]>([]);
   const [secretWords, setSecretWords] = useState<SecretWordAlias[]>([]);
+  const [cloudStatus, setCloudStatus] = useState<XiaozhiCloudBridgeStatus>({
+    status: 'disconnected',
+    url: '',
+    sanitizedUrl: '',
+    configuredInEnv: false,
+    connectedAt: null,
+    lastPingMs: null,
+    lastError: null,
+    messagesSent: 0,
+    messagesReceived: 0,
+    activeToolsCount: 0,
+    reconnectAttempts: 0,
+  });
   const [deviceState, setDeviceState] = useState<XiaozhiDeviceState>({
     deviceId: 'esp32s3-xz-8a4b2c',
     deviceName: 'Xiaozhi AI Companion (ESP32-S3)',
@@ -104,6 +118,19 @@ export default function App() {
     }
   }, []);
 
+  // Fetch Xiaozhi Cloud Bridge status (outbound WebSocket)
+  const fetchCloudStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/xiaozhi/cloud-bridge');
+      const data = await res.json();
+      if (data && data.status) {
+        setCloudStatus(data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch cloud bridge status:', err);
+    }
+  }, []);
+
   // Fetch Xiaozhi device status
   const fetchDeviceState = useCallback(async () => {
     try {
@@ -119,7 +146,14 @@ export default function App() {
 
   // Initial data load
   useEffect(() => {
-    Promise.all([fetchTools(), fetchAutomations(), fetchSecretWords(), fetchLogs(), fetchDeviceState()]).finally(() => {
+    Promise.all([
+      fetchTools(),
+      fetchAutomations(),
+      fetchSecretWords(),
+      fetchLogs(),
+      fetchDeviceState(),
+      fetchCloudStatus(),
+    ]).finally(() => {
       setLoadingInitial(false);
     });
 
@@ -127,10 +161,11 @@ export default function App() {
     const interval = setInterval(() => {
       fetchLogs();
       fetchDeviceState();
-    }, 4500);
+      fetchCloudStatus();
+    }, 3500);
 
     return () => clearInterval(interval);
-  }, [fetchTools, fetchAutomations, fetchSecretWords, fetchLogs, fetchDeviceState]);
+  }, [fetchTools, fetchAutomations, fetchSecretWords, fetchLogs, fetchDeviceState, fetchCloudStatus]);
 
   // Tool actions
   const handleToggleTool = async (name: string) => {
@@ -170,6 +205,8 @@ export default function App() {
         onOpenExportModal={() => setIsExportModalOpen(true)}
         activeToolsCount={tools.filter((t) => t.enabled).length}
         secretWordsCount={secretWords.filter((s) => s.enabled).length}
+        cloudStatus={cloudStatus}
+        onOpenCloudSettings={() => setActiveTab('protocol')}
       />
 
       {/* Main Viewport Content */}
@@ -187,8 +224,10 @@ export default function App() {
         {activeTab === 'simulator' && (
           <XiaozhiSimulator
             deviceState={deviceState}
+            cloudStatus={cloudStatus}
             onRefreshDevice={fetchDeviceState}
             onDeviceStateChange={handleDeviceStateChange}
+            onOpenCloudSettings={() => setActiveTab('protocol')}
           />
         )}
 
@@ -213,6 +252,8 @@ export default function App() {
         {activeTab === 'protocol' && (
           <ProtocolInspector
             logs={logs}
+            cloudStatusProp={cloudStatus}
+            onRefreshCloudStatus={fetchCloudStatus}
             onClearLogs={async () => {
               await fetch('/api/logs', { method: 'DELETE' });
               setLogs([]);

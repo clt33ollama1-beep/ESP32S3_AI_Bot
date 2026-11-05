@@ -1,15 +1,22 @@
+import dotenv from 'dotenv';
 import { pluginRegistry } from './pluginRegistry.js';
 import { mcpServerManager } from './mcpServer.js';
+
+// Ensure .env is loaded in this module
+dotenv.config();
 
 export interface XiaozhiCloudBridgeStatus {
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
   url: string;
+  sanitizedUrl: string;
+  configuredInEnv: boolean;
   connectedAt: string | null;
   lastPingMs: number | null;
   lastError: string | null;
   messagesSent: number;
   messagesReceived: number;
   activeToolsCount: number;
+  reconnectAttempts: number;
 }
 
 export class XiaozhiCloudBridge {
@@ -27,39 +34,101 @@ export class XiaozhiCloudBridge {
   private reconnectAttempts: number = 0;
 
   constructor() {
-    // Check if URL was supplied via environment variable
-    const envUrl = process.env.XIAOZHI_MCP_WS_URL;
-    if (envUrl && envUrl.startsWith('ws')) {
-      console.log(`[XiaozhiCloudBridge] Auto-connecting from XIAOZHI_MCP_WS_URL env var...`);
+    this.initFromEnv(false);
+  }
+
+  /**
+   * Cleans URL of any accidental surrounding quotes, whitespace, or escapes
+   */
+  public cleanUrl(urlStr: string): string {
+    if (!urlStr) return '';
+    return urlStr
+      .trim()
+      .replace(/^["'`]|["'`]$/g, '')
+      .trim();
+  }
+
+  /**
+   * Sanitizes token parameter in the URL for safe display in logs and UI
+   */
+  public sanitizeUrl(urlStr: string): string {
+    const raw = this.cleanUrl(urlStr);
+    if (!raw) return '';
+    try {
+      const urlObj = new URL(raw);
+      const token = urlObj.searchParams.get('token');
+      if (token && token.length > 10) {
+        urlObj.searchParams.set('token', token.substring(0, 6) + '...' + token.slice(-4));
+      }
+      return urlObj.toString();
+    } catch {
+      return raw.length > 40 ? raw.substring(0, 36) + '...' : raw;
+    }
+  }
+
+  /**
+   * Initializes or reloads outbound WebSocket connection using XIAOZHI_MCP_WS_URL from .env
+   */
+  public initFromEnv(forceReloadDotenv: boolean = true): void {
+    if (forceReloadDotenv) {
+      try {
+        dotenv.config({ override: true });
+      } catch (err) {
+        console.warn('[XiaozhiCloudBridge] Note: dotenv reload failed:', err);
+      }
+    }
+
+    const envUrl = this.cleanUrl(process.env.XIAOZHI_MCP_WS_URL || '');
+    if (envUrl && (envUrl.startsWith('ws://') || envUrl.startsWith('wss://'))) {
+      console.log(`[XiaozhiCloudBridge] Auto-connecting from XIAOZHI_MCP_WS_URL: ${this.sanitizeUrl(envUrl)}`);
+      this.targetUrl = envUrl;
       this.connect(envUrl);
+    } else if (envUrl) {
+      this.targetUrl = envUrl;
+      this.status = 'error';
+      this.lastError = `Invalid XIAOZHI_MCP_WS_URL in .env: must start with wss:// or ws:// (got "${envUrl.substring(0, 15)}...")`;
+      console.warn(`[XiaozhiCloudBridge] ${this.lastError}`);
+    } else {
+      console.log(`[XiaozhiCloudBridge] No XIAOZHI_MCP_WS_URL set in environment. Waiting for manual connect or .env update.`);
     }
   }
 
   public getStatus(): XiaozhiCloudBridgeStatus {
+    const envUrl = this.cleanUrl(process.env.XIAOZHI_MCP_WS_URL || '');
+    const activeUrl = this.targetUrl || envUrl;
+
     return {
       status: this.status,
-      url: this.targetUrl,
+      url: activeUrl,
+      sanitizedUrl: this.sanitizeUrl(activeUrl),
+      configuredInEnv: Boolean(envUrl && (envUrl.startsWith('ws://') || envUrl.startsWith('wss://'))),
       connectedAt: this.connectedAt,
       lastPingMs: this.lastPingMs,
       lastError: this.lastError,
       messagesSent: this.messagesSent,
       messagesReceived: this.messagesReceived,
       activeToolsCount: pluginRegistry.getActiveTools().length,
+      reconnectAttempts: this.reconnectAttempts,
     };
   }
 
   public connect(url?: string): void {
     if (url) {
-      this.targetUrl = url.trim();
+      this.targetUrl = this.cleanUrl(url);
+    } else if (!this.targetUrl) {
+      const envUrl = this.cleanUrl(process.env.XIAOZHI_MCP_WS_URL || '');
+      if (envUrl) {
+        this.targetUrl = envUrl;
+      }
     }
 
-    if (!this.targetUrl || !this.targetUrl.startsWith('ws')) {
+    if (!this.targetUrl || (!this.targetUrl.startsWith('ws://') && !this.targetUrl.startsWith('wss://'))) {
       this.status = 'error';
-      this.lastError = 'Invalid WebSocket URL. Must start with wss:// or ws://';
+      this.lastError = 'Invalid WebSocket URL. Must start with wss:// or ws:// (e.g. wss://api.xiaozhi.me/mcp/?token=ey...)';
       return;
     }
 
-    // Clean existing connection
+    // Clean existing connection before opening new
     this.cleanup();
 
     this.status = 'connecting';
@@ -67,7 +136,7 @@ export class XiaozhiCloudBridge {
     this.autoReconnect = true;
 
     try {
-      console.log(`[XiaozhiCloudBridge] Connecting to Xiaozhi Cloud: ${this.getSanitizedUrl()}`);
+      console.log(`[XiaozhiCloudBridge] Connecting to Xiaozhi Cloud Gateway: ${this.sanitizeUrl(this.targetUrl)}`);
       this.ws = new WebSocket(this.targetUrl);
 
       this.ws.onopen = () => {
@@ -75,9 +144,9 @@ export class XiaozhiCloudBridge {
         this.connectedAt = new Date().toISOString();
         this.reconnectAttempts = 0;
         this.lastError = null;
-        console.log(`[XiaozhiCloudBridge] Successfully connected to Xiaozhi Cloud MCP gateway!`);
+        console.log(`[XiaozhiCloudBridge] Successfully connected to Xiaozhi Cloud MCP gateway (${this.sanitizeUrl(this.targetUrl)})!`);
 
-        // Send MCP initialize or announcement so Xiaozhi knows who we are
+        // Send MCP initialized notification
         this.sendJson({
           jsonrpc: '2.0',
           method: 'notifications/initialized',
@@ -90,7 +159,10 @@ export class XiaozhiCloudBridge {
           },
         });
 
-        // Start heartbeat ping every 25 seconds to keep connection and NAT session alive
+        // Broadcast tools list changed so Xiaozhi platform pulls all active tools immediately
+        this.notifyToolListChanged();
+
+        // Start heartbeat ping
         this.startHeartbeat();
       };
 
@@ -113,15 +185,32 @@ export class XiaozhiCloudBridge {
 
       this.ws.onerror = (err: any) => {
         this.status = 'error';
-        this.lastError = err?.message || 'WebSocket connection error';
+        const rawMsg = err?.message || (typeof err === 'object' && Object.keys(err).length ? JSON.stringify(err) : '');
+        this.lastError = rawMsg || 'WebSocket connection error. Token may be invalid or refused by server.';
         console.warn('[XiaozhiCloudBridge] WebSocket error:', this.lastError);
       };
 
       this.ws.onclose = (event: CloseEvent) => {
         console.log(`[XiaozhiCloudBridge] Connection closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
-        this.status = 'disconnected';
         this.connectedAt = null;
         this.cleanupHeartbeat();
+
+        if (event.code === 1000) {
+          // Clean disconnection by user
+          this.status = 'disconnected';
+          this.lastError = null;
+        } else if (event.code === 1006) {
+          // Abnormal closure (token invalid/expired, HTTP 401/403 handshake rejection, or network drop)
+          this.status = 'error';
+          this.lastError =
+            'Connection closed abnormally (code 1006). Usually caused by an invalid/expired token or server handshake rejection. Please verify your token on xiaozhi.me.';
+        } else if (event.code === 1002 || event.code === 1008) {
+          this.status = 'error';
+          this.lastError = `Connection policy violation (code ${event.code}). Token unauthorized or invalid.`;
+        } else {
+          this.status = 'error';
+          this.lastError = `Connection closed (code ${event.code}${event.reason ? ': ' + event.reason : ''})`;
+        }
 
         if (this.autoReconnect) {
           this.scheduleReconnect();
@@ -139,6 +228,8 @@ export class XiaozhiCloudBridge {
     this.cleanup();
     this.status = 'disconnected';
     this.connectedAt = null;
+    this.lastError = null;
+    this.reconnectAttempts = 0;
     console.log('[XiaozhiCloudBridge] Disconnected by user.');
   }
 
@@ -213,23 +304,14 @@ export class XiaozhiCloudBridge {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (this.autoReconnect) {
+        this.status = 'connecting';
         this.connect();
       }
     }, delay);
   }
 
   public getSanitizedUrl(): string {
-    if (!this.targetUrl) return '';
-    try {
-      const urlObj = new URL(this.targetUrl);
-      const token = urlObj.searchParams.get('token');
-      if (token && token.length > 10) {
-        urlObj.searchParams.set('token', token.substring(0, 6) + '...' + token.slice(-4));
-      }
-      return urlObj.toString();
-    } catch {
-      return this.targetUrl.substring(0, 30) + '...';
-    }
+    return this.sanitizeUrl(this.targetUrl);
   }
 }
 
